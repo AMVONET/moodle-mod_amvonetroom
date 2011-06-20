@@ -35,8 +35,7 @@ else
 require_course_login($course, true, $cm);
 $context = get_context_instance(CONTEXT_MODULE, $cm->id);
 
-header("Location: ./endpoint.php?id=" . $room->uid);
+redirect("./endpoint.php?id=" . $room->uid);
 die();
 
 ?>
-

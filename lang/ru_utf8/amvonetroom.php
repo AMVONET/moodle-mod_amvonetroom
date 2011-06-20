@@ -25,6 +25,7 @@ $string['key_hint'] = 'Пожалуйста, зарегистрируйте Ва
 $string['label_domain'] = 'Домен';
 $string['label_version'] = 'Версия';
 $string['label_status'] = 'Статус';
+$string['label_warning'] = 'Предупреждение';
 
 $string['label_version_lite'] = 'Lite';
 $string['label_version_pro'] = 'Pro';
@@ -46,4 +47,7 @@ $string['error_version_incompatible'] = 'master.amvonet.com не поддерж�
 $string['error_version_too_old'] = 'Установлена устаревшая версия модуля AMVONET Room. Пожалуйста обновите версию модуля';
 $string['error_unavailable'] = 'master.amvonet.com временно недоступен.';
 $string['error_key_not_defined'] = 'Модуль AMVONET Room не зарегистрирован.';
+
+// warnings
+$string['warn_no_crossdomain'] = 'Крос-доменная политика не настроена. Обратитесь к инструкции по установке.' ;
 ?>

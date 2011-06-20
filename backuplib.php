@@ -1,47 +1,45 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: den
- */
-
 
 function amvonetroom_backup_mods($bf,$preferences) {
     global $CFG;
 
-    $status = true;
+    $status = TRUE;
 
-    ////Iterate ARs
-    if ($ars = get_records("amvonetroom", "course", $preferences->backup_course, "id")) {
-        foreach ($ars as $ar) {
-            if (backup_mod_selected($preferences, 'amvonetroom', $ar->id)){
-                 $status = amvonetroom_backup_one_mod($bf, $preferences, $ar);
-            }
+    $rooms = get_records("amvonetroom", "course", $preferences->backup_course, "id");
+    if (!$rooms)
+        return $status;
+
+    //Iterate amvonet rooms
+    foreach ($rooms as $room) {
+        if (backup_mod_selected($preferences, 'amvonetroom', $room->id)){
+             $status = $status && amvonetroom_backup_one_mod($bf, $preferences, $room);
         }
     }
+
     return $status;
 }
 
-function amvonetroom_backup_one_mod($bf,$preferences,$arid) {
+function amvonetroom_backup_one_mod($bf,$preferences,$roomOrId) {
     global $CFG;
 
-    if (is_numeric($arid)) {
-        $ar = get_record('amvonetroom', 'id', $arid);
-    }
+    if (!$roomOrId)
+        return FALSE;
 
-    $status = true;
+    if (is_numeric($roomOrId)) {
+        $room = get_record('amvonetroom', 'id', $roomOrId);
+    } else {
+        $room = $roomOrId;
+    }
 
     //Start mod
     fwrite($bf, start_tag("MOD",3,true));
     //Print data
-    fwrite ($bf,full_tag("ID",4,false,$ar->id));
+    fwrite ($bf,full_tag("ID",4,false,$room->id));
     fwrite ($bf,full_tag("MODTYPE",4,false,"amvonetroom"));
-    fwrite ($bf,full_tag("NAME",4,false,$ar->name));
-    fwrite ($bf,full_tag("INTRODUCTION_TEXT",4,false,$ar->introduction_text));
-    fwrite ($bf,full_tag("DELETED",4,false,$ar->deleted));
+    fwrite ($bf,full_tag("NAME",4,false,$room->name));
+    fwrite ($bf,full_tag("INTRODUCTION_TEXT",4,false,$room->introduction_text));
     //End mod
-    $status = fwrite ($bf,end_tag("MOD",3,true));
-
-    return $status;
+    return fwrite ($bf,end_tag("MOD",3,true));
 }
 
 ////Return an array of info (name,value)
@@ -63,7 +61,7 @@ function amvonetroom_check_backup_mods($course,$user_data=false,$backup_unique_c
 ////Return an array of info (name,value)
 function amvonetroom_check_backup_mods_instances($instance,$backup_unique_code) {
      //First the course data
-    $info[$instance->id.'0'][0] = '<b>'.$instance->name.'</b>';
+    $info[$instance->id.'0'][0] = '<b>' . format_string(stripslashes($instance->name)) . '</b>';
     $info[$instance->id.'0'][1] = '';
     return $info;
 }

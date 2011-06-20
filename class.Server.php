@@ -1,42 +1,40 @@
 <?php
 
-require_once("class.Version.php");
+require_once("$CFG->dirroot/mod/amvonetroom/class.Version.php");
 
-class Server {
+class amvonetroom_Server {
     private static $error = NULL;
 
-    public static function combineUrl($url1, $url2) {
-        if (strpos($url2, "://") > 0)
-            return $url2;
-
-        if (substr($url1, -1) != "/") {
-            $url1 .= "/";
-        }
-
-        return $url1 . $url2;
-    }
-
     /**
-     * Combines servlet URL in form <serverUrl>/balancer_redirect/<servlet>?sessionId=<uid> 
+     * Combines servlet URL in form <serverUrl>/balancer_proxy/<servlet>
      *
      * @param $serverUrl balancer's entry point
      * @param $servlet servlet path
-     * @param $uid session id
      * @return URL for a specified servlet via a balancer
      */
-    public static function combineServletUrl ($serverUrl, $servlet,  $uid) {
+    public static function balancerProxy ($serverUrl, $servlet) {
         if (substr($serverUrl, -1) != "/") {
             $serverUrl .= "/";
         }
 
-        if ($uid !== null) {
-            return $serverUrl . "balancer_redirect/" . $servlet .
-                    "?sessionId=" . $uid .
-                    "&protoVersion=" . ProtoVersion::getCurrent()->__toString();
+        return $serverUrl . "balancer_proxy/" . $servlet .
+            "?protoVersion=" . amvonetroom_ProtoVersion::getCurrent();
+    }
+
+    /**
+     * Combines servlet URL in form <serverUrl>/balancer_redirect/<servlet>
+     *
+     * @param $serverUrl balancer's entry point
+     * @param $servlet servlet path
+     * @return URL for a specified servlet via a balancer
+     */
+    public static function balancerRedirect ($serverUrl, $servlet) {
+        if (substr($serverUrl, -1) != "/") {
+            $serverUrl .= "/";
         }
 
-        return $serverUrl . $servlet .
-                "?protoVersion=" . ProtoVersion::getCurrent()->__toString();
+        return $serverUrl . "balancer_redirect/" . $servlet .
+            "?protoVersion=" . amvonetroom_ProtoVersion::getCurrent();
     }
 
     /**
@@ -56,7 +54,7 @@ class Server {
         $serverUrl .= "get_worker?sessionId=$uid";
 
         $url = FALSE;
-        $req = new HttpRequest("GET", $serverUrl);
+        $req = new amvonetroom_HttpRequest("GET", $serverUrl);
         if (!$req->send(NULL)) {
             self::$error = $req->getError();
         } else {

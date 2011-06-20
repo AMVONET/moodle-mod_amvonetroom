@@ -3,12 +3,13 @@
 require_once("../../../config.php");
 require_once("../class.Version.php");
 require_once("../class.User.php");
+require_once("../class.XmlResponse.php");
 
-ProtoVersion::checkRequest();
+amvonetroom_ProtoVersion::checkRequest();
 
-$login = @$_GET['login'];
-$password = @$_GET['password'];
-$locale = @$_GET['locale'];
+$login = required_param('login', PARAM_RAW);
+$password = required_param('password', PARAM_RAW);
+$locale = optional_param('locale', 'en', PARAM_ALPHAEXT);
 
 if ($USER->id == 0 && !$login) {
     header ("HTTP/1.1 401 Unauthorized");
@@ -30,9 +31,6 @@ if ($login) {
         $USER->lang = $locale + '_utf8';
     }
 }
-$xml = User::getAsXml($USER, null, true);
-
-header('Content-Type:text/xml;charset=UTF-8');
-header("Content-Length: " . strlen($xml));
-echo $xml;
+$xml = amvonetroom_User::getAsXml($USER, null, true);
+$xml->send();
 ?>

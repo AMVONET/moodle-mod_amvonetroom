@@ -4,7 +4,7 @@
  * Used to prevent additional dependencies on php_http extension,
  * which isn't required by Moodle. 
  */
-class HttpRequest {
+class amvonetroom_HttpRequest {
 
     private $curlHandle = null;
     private $response = null;

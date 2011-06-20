@@ -11,7 +11,7 @@ require_once("lib.php");
 
 require_login();
 
-$uid = $_GET['id'];
+$uid = required_param('id', PARAM_SAFEDIR); // a-zA-Z0-9_-
 
 if ($uid) {
     $room = get_record("amvonetroom", "uid", $uid);
@@ -23,6 +23,6 @@ if (!$room) {
 }
 
 $cm = get_coursemodule_from_instance ('amvonetroom', $room->id, $room->course);
-header("Location: " . $CFG->wwwroot . "/course/modedit.php?update=" . $cm->id . "&return=0");
+redirect($CFG->wwwroot . "/course/modedit.php?update=" . $cm->id . "&return=0");
 die();
 ?>

@@ -1,12 +1,12 @@
 <?php
 
-require_once("class.HttpRequest.php");
-require_once("class.Version.php");
-require_once("class.SchoolPassport.php");
-require_once("class.Server.php");
-require_once("class.User.php");
+require_once("$CFG->dirroot/mod/amvonetroom/class.HttpRequest.php");
+require_once("$CFG->dirroot/mod/amvonetroom/class.Version.php");
+require_once("$CFG->dirroot/mod/amvonetroom/class.SchoolPassport.php");
+require_once("$CFG->dirroot/mod/amvonetroom/class.Server.php");
+require_once("$CFG->dirroot/mod/amvonetroom/class.User.php");
 
-class Session {
+class amvonetroom_Session {
     private $uid;
     private $error;
 
@@ -44,34 +44,27 @@ class Session {
     public function create ($course, $name, $info) {
         $this->clearError();
 
-        $passport = SchoolPassport::get();
+        $passport = amvonetroom_SchoolPassport::get();
         if (!$passport) {
-            $this->error = SchoolPassport::getError();
+            $this->error = amvonetroom_SchoolPassport::getError();
             return FALSE;
         }
 
         $session = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><session/>');
-        // skip uid, it's ignored anyway
+        $session->addAttribute("id", $this->uid);
         $session->addAttribute("course", $course);
         $session->addAttribute("name", $name);
-        $session->addAttribute("schoolKey", SchoolPassport::getKey());
+        $session->addAttribute("schoolKey", amvonetroom_SchoolPassport::getKey());
         $session->addChild("info", $info);
 
-        $serverUrl = Server::getWorkerUrl($passport->getEntryPoint(), "0");
-        if (!$serverUrl) {
-            $this->error = Server::getError();
-            return FALSE;
-        }
-
-        $serverUrl = Server::combineUrl($serverUrl, "rest/session/0");
-        $serverUrl .= "?protoVersion=" . ProtoVersion::getCurrent()->__toString();
-        $token = User::getToken();
+        $serverUrl = amvonetroom_Server::balancerProxy($passport->getEntryPoint(), "rpc/0/import");
+        $token = amvonetroom_User::getToken();
         if (!empty($token))
             $serverUrl .= "&token=$token";
         
         $data = $session->asXML();
 
-        $req = new HttpRequest("PUT", $serverUrl);
+        $req = new amvonetroom_HttpRequest("PUT", $serverUrl);
         $req->setContentType("text/xml");
         if (!$req->send($data)) {
             $this->error = $req->getError();
@@ -86,26 +79,19 @@ class Session {
     public function update($name, $info) {
         $this->clearError();
 
-        $passport = SchoolPassport::get();
+        $passport = amvonetroom_SchoolPassport::get();
         if (!$passport) {
-            $this->error = SchoolPassport::getError();
+            $this->error = amvonetroom_SchoolPassport::getError();
             return FALSE;
         }
 
-        $serverUrl = Server::getWorkerUrl($passport->getEntryPoint(), $this->uid);
-        if (!$serverUrl) {
-            $this->error = Server::getError();
-            return FALSE;
-        }
-
-        $serverUrl = Server::combineUrl($serverUrl, "rpc/$this->uid/update");
-        $serverUrl .= "?protoVersion=" . ProtoVersion::getCurrent()->__toString();
+        $serverUrl = amvonetroom_Server::balancerProxy($passport->getEntryPoint(), "rpc/$this->uid/update");
         $serverUrl .= "&name=" . urlencode($name);
-        $token = User::getToken();
+        $token = amvonetroom_User::getToken();
         if (!empty($token))
             $serverUrl .= "&token=$token";
 
-        $req = new HttpRequest("POST", $serverUrl);
+        $req = new amvonetroom_HttpRequest("POST", $serverUrl);
         $req->setContentType("text/plain; charset=UTF-8");
         if (!$req->send($info)) {
             $this->error = $req->getError();
@@ -123,18 +109,18 @@ class Session {
     public function delete() {
         $this->clearError();
 
-        $passport = SchoolPassport::get();
+        $passport = amvonetroom_SchoolPassport::get();
         if (!$passport) {
-            $this->error = SchoolPassport::getError();
+            $this->error = amvonetroom_SchoolPassport::getError();
             return FALSE;
         }
 
-        $serverUrl = Server::combineServletUrl($passport->getEntryPoint(), "rpc/$this->uid/delete", $this->uid);
-        $token = User::getToken();
+        $serverUrl = amvonetroom_Server::balancerProxy($passport->getEntryPoint(), "rpc/$this->uid/delete");
+        $token = amvonetroom_User::getToken();
         if (!empty($token))
             $serverUrl .= "&token=$token";
         
-        $req = new HttpRequest("GET", $serverUrl);
+        $req = new amvonetroom_HttpRequest("GET", $serverUrl);
         if (!$req->send(NULL)) {
             $this->error = $req->getError();
         }

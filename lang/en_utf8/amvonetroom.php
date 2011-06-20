@@ -25,6 +25,7 @@ $string['key_hint'] = 'Register your AMVONET Room module on www.amvonet.com and 
 $string['label_domain'] = 'Domain';
 $string['label_version'] = 'Version';
 $string['label_status'] = 'Status';
+$string['label_warning'] = 'Warning';
 
 $string['label_version_lite'] = 'Lite';
 $string['label_version_pro'] = 'Pro';
@@ -46,4 +47,7 @@ $string['error_version_incompatible'] = 'master.amvonet.com doesn\'t support cur
 $string['error_version_too_old'] = 'AMVONET Room module has too old version. Please, update module.';
 $string['error_unavailable'] = 'master.amvonet.com is temporary unavailable.';
 $string['error_key_not_defined'] = 'AMVONET Room module isn\'t registered.';
+
+// warnings
+$string['warn_no_crossdomain'] = 'Cross-domain policy isn\'t set up properly. Refer to Installation Guide for details.' ;
 ?>

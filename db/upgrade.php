@@ -1,8 +1,5 @@
-<?php  //$Id: upgrade.php,v 1.1.2.2 2006/10/26 17:43:08 stronk7 Exp $
+<?php
 
-// This file keeps track of upgrades to 
-// the autoattendmod module
-//
 // Sometimes, changes between versions involve
 // alterations to database structures and other
 // major things that may break installations.
@@ -28,9 +25,16 @@ function xmldb_amvonetroom_upgrade($oldversion=0) {
 /// this comment lines once this file start handling proper
 /// upgrade code.
 
-/// if ($result && $oldversion < YYYYMMDD00) { //New version in version.php
-///     $result = result of "/lib/ddllib.php" function calls
-/// }
+    if ($oldversion < 2011040400) { // before this version security tokens were stored on file system
+        $result = install_from_xmldb_file($CFG->dirroot . '/mod/amvonetroom/db/upgrade-20110404.xml');
+    } else if ($oldversion <= 2011053000) { // before this version security tokens were linked with both user and amvonetroom activity
+        // clear all existing token to prevent non-unique index after removing fields
+        delete_records_select("amvonetroom_access", "(1)"); 
+
+        $table = new XMLDBTable('amvonetroom_access');
+        drop_field($table, new XMLDBField('role'));
+        drop_field($table, new XMLDBField('room_id'));
+    }
 
     return $result;
 }

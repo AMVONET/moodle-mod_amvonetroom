@@ -1,13 +1,12 @@
 <?php
 
-define ("ROLE_STUDENT", "st");
-define ("ROLE_MODERATOR", "mu");
-define ("ROLE_GUEST_MODERATOR", "gmu");
+define ("AMVONETROOM_ROLE_STUDENT", "st");
+define ("AMVONETROOM_ROLE_MODERATOR", "mu");
+define ("AMVONETROOM_ROLE_GUEST_MODERATOR", "gmu");
 
-define ("USER_TIME_CACHE", 60 * 60 * 24);
-define ("AMVONET_DATA_DIR", "moddata/amvonetroom");
+define ("AMVONETROOM_USER_TIME_CACHE", 60 * 60 * 24);
 
-class User {
+class amvonetroom_User {
     private static $error = NULL;
     private static $token = NULL;
 
@@ -15,99 +14,214 @@ class User {
      * Registers Moodle's user as AMVONET user.
      * Creates temporary file with unique name with user information.
      *
-     * @param $user (array) - Moodle's user
-     * @param $role - user role
-     * @return $token
+     * @param object $user - Moodle's user
+     * @param object $room - AMVONET room instance
+     * @return string token
      */
-    public static function registerUser($user, $role) {
+    public static function registerUser($user, $room) {
         global $CFG;
         self::clearError();
 
         // first, clean expired tokens
         self::clean();
 
-        // second, check the token already presented in cookie
-        $token = self::getToken();
-        if ($token) {
-            $info = self::getByToken($token);
-
-            if ($info !== FALSE) {
-                $xml = new SimpleXMLElement($info);
-
-                // is it the same user with the same role?
-                if ($xml['lmsId'] == $user->id && $xml['role'] == $role)
-                    return $token;
-            }
-        }
-
-        // third, if no token in cookie or its expired then generate new one
-        $token = uniqid();
-
-        make_upload_directory(AMVONET_DATA_DIR);  //Make sure the directory exists the first time we register for a site
-
-        $file = $CFG->dataroot . '/' . AMVONET_DATA_DIR . '/' . $token . ".usr";
-        $fp = fopen($file, "w+");
-        if( !$fp ) {
-            self::$error = "Can't create session token file: $file";
-            return FALSE;
+        // second, check the token already presented in db
+        $access = get_record("amvonetroom_access", "user_id", $user->id);
+        if ($access) {
+            // refresh token
+            $access->last_access = time();
+            update_record("amvonetroom_access", $access);
         } else {
-            $info = self::getAsXml($user, $role);
-            fwrite ($fp, $info);
-            fclose($fp);
+            // third, if no token in db or its expired then generate new one
+            $access = new stdClass();
+            $access->token = uniqid();
+            $access->user_id = $user->id;
+            $access->last_access = time();
+
+            $id = insert_record("amvonetroom_access", $access);
+            if (!$id) {
+                self::$error = "Unable to generate security token";
+                return FALSE;
+            }
+            $access->id = $id;
         }
+        self::setToken($access->token);
 
-        self::setToken($token);
-
-        return $token;
+        return $access->token;
     }
 
     /**
-     * Reads info of user from file and return it as string and FALSE if not found.
+     * Returns compound access object by token.
      *
-     * @param $token user's token
-     * @return user's info
+     * $access
+     *   id
+     *   token
+     *   user_id
+     *   last_access
+     *   room
+     *     id
+     *     uid
+     *     course
+     *     moderator
+     *   user
+     *    *
+     * 
+     * @static
+     * @param string $token
+     * @param string $sessionId
+     * @return mixed access object or false if failed
      */
-    public static function getByToken ($token) {
+    public static function getAccessByToken ($token, $sessionId) {
         global $CFG;
 
         self::clearError();
 
-        $file = $CFG->dataroot . '/' . AMVONET_DATA_DIR . '/'. $token . ".usr";
+        $meta = get_record_sql("SELECT u.*, a.id AS access_id, a.token, a.user_id, a.last_access, r.id AS room_id, r.uid, r.course, r.moderator
+            FROM {$CFG->prefix}user u, {$CFG->prefix}amvonetroom r, {$CFG->prefix}amvonetroom_access a
+            WHERE a.token='$token' AND a.user_id=u.id AND r.uid='$sessionId'");
 
-        if (!file_exists($file)) {
+        if (!$meta) {
+            self::$error = "Forbidden";
             return FALSE;
         }
 
-        $fp = fopen ($file, "r+");
-        $contents = fread($fp, filesize($file));
-        fclose($fp);
+        $ttl = time() - AMVONETROOM_USER_TIME_CACHE;
+        if (intval($meta->last_access) < $ttl) {
+            self::$error = "Forbidden";
+            return FALSE;
+        }
 
-        touch($file);
+        // re-compound to linked objects
+        $access = new stdClass();
+        $access->id = $meta->access_id; unset($meta->access_id);
+        $access->token = $meta->token; unset($meta->token);
+        $access->last_access = time();
+        $access->user_id = $meta->user_id; unset($meta->user_id);
 
-        return $contents;
+        $room = new stdClass();
+        $room->id = $meta->room_id; unset($meta->room_id);
+        $room->uid = $meta->uid; unset($meta->uid);
+        $room->course = $meta->course; unset($meta->course);
+        $room->moderator = $meta->moderator; unset($meta->moderator);
+        $access->room = $room;
+
+        $access->user = $meta;
+        /////////////////////////////////
+
+        $access->role = self::getRole($access->user, $access->room);
+        if (empty($access->role)) {
+            self::$error = "Forbidden";
+            return FALSE;
+        }
+
+        update_record("amvonetroom_access", $access);
+
+        return $access;
+    }
+
+    public static function ensureMuPrivileges($access) {
+        if ($access->role != AMVONETROOM_ROLE_MODERATOR && $access->role != AMVONETROOM_ROLE_GUEST_MODERATOR) {
+            self::$error = "Forbidden";
+            return FALSE;
+        }
+
+        return TRUE;
+    }
+
+    public static function getToken() {
+        return self::$token;
+    }
+
+    public static function setToken($token) {
+        self::$token = $token;
     }
 
     private static function clean() {
         global $CFG;
 
-        $directory = $CFG->dataroot . '/' . AMVONET_DATA_DIR;
+        $ttl = time() - AMVONETROOM_USER_TIME_CACHE;
+        delete_records_select("amvonetroom_access", "last_access < $ttl");
+    }
 
-        $handle = opendir($directory);
-        while ($datei = readdir($handle))
-        {
-            if (($datei != '.') && ($datei != '..'))
-            {
-                $file = $directory . '/' . $datei;
-                if (!is_dir($file) && strrpos($file, ".usr") === strlen($file)-strlen(".usr")) {
-                    //cleaning
-                    if (time() - filemtime($file) > USER_TIME_CACHE) {
-                        unlink ($file);
-                    }
-                }
+    /**
+     * Returns role for specified user against given amvonet room
+     *
+     * @param object $user - Moodle's user
+     * @param object $room - AMVONET room instance
+     * @return string role
+     */
+    public static function getRole($user, $room) {
+        $role = "";
+
+        if ((int)$room->moderator === (int)$user->id) {
+            $role = AMVONETROOM_ROLE_MODERATOR;
+        } else {
+            $ctx = get_context_instance(CONTEXT_COURSE, $room->course);
+            if (has_capability('moodle/course:manageactivities', $ctx, $user->id)) {
+                $role = AMVONETROOM_ROLE_GUEST_MODERATOR;
+            } else if (has_capability('moodle/course:view', $ctx, $user->id)) {
+                $role = AMVONETROOM_ROLE_STUDENT;
             }
         }
-        closedir($handle);
+
+        return $role;
     }
+
+    /**
+     * Returns list of users who have course:manageactivities capability
+     * and therefore can be a moderators.
+     *
+     * @param int $courseId course id
+     * @return array of user instances
+     */
+    public static function getModerators($courseId) {
+        return get_users_by_capability (
+            get_context_instance(CONTEXT_COURSE, $courseId),
+            'moodle/course:manageactivities'
+        );
+    }
+
+    /**
+     * Returns list of users who have course:view capability.
+     *
+     * @param int $courseId course id
+     * @return array of user instances
+     */
+    public static function getParticipants($courseId) {
+        return get_users_by_capability (
+            get_context_instance(CONTEXT_COURSE, $courseId),
+            'moodle/course:view'
+        );
+    }
+
+    /**
+     * Returns list of users who can be graded.
+     *
+     * @param int $courseId course id
+     * @return array of user instances
+     */
+    public static function getGradees($courseId) {
+        global $CFG;
+
+        $users = array();
+
+        if (empty($CFG->gradebookroles))
+            return $users;
+
+        $context = get_context_instance(CONTEXT_COURSE, $courseId);
+
+        foreach(split(',', $CFG->gradebookroles) as $role_id) {
+            if (empty($role_id))
+                continue;
+
+            $role_users = get_role_users($role_id, $context, true);
+			if ($role_users) {
+				$users += $role_users;
+			}
+		}
+
+        return $users;
+	}
 
     /**
      *
@@ -121,41 +235,32 @@ class User {
         self::$error = NULL;
     }
 
-    public static function getToken() {
-        if (empty(self::$token)) {
-            self::$token = @$_COOKIE["token"];
-        }
-        return self::$token;
-    }
-
-    public static function setToken($token) {
-        setcookie("token", $token);
-        self::$token = $token;
-    }
-
     /**
      * Formats and returns user information for callback.
-     * Used to return user info to media-server.
+     * Used to return user info to media-server alse.
      *
      * @param $user - Moodle's user
      * @param $role - user role
-     * @return formatted user info as xml
+     * @return XmlResponse
      */
     public static function getAsXml($user, $role = null, $useNamespace = false) {
         global $CFG;
 
-        $xml = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><user' . ($useNamespace ? ' xmlns="http://www.amvonet.com/schema/user"' : '') . '/>');
-        if (!empty($role))
-            $xml->addAttribute("role", $role);
-        $xml->addAttribute("login", $user->username);
-        $xml->addAttribute("firstName", $user->firstname);
-        $xml->addAttribute("lastName", $user->lastname);
-        $xml->addAttribute("lmsId", $user->id);
-        $xml->addAttribute("email", $user->email);
-        $urlInfo = parse_url($CFG->wwwroot);
-        $xml->addAttribute("domain", $urlInfo['host']);
+        $xml = amvonetroom_XmlResponse::user($useNamespace);
 
-        return $xml->asXML();
+        if (!empty($role))
+            $xml->attribute("role", $role);
+
+        $xml->attribute("login", $user->username);
+        $xml->attribute("firstName", $user->firstname);
+        $xml->attribute("lastName", $user->lastname);
+        $xml->attribute("lmsId", $user->id);
+        $xml->attribute("email", $user->email);
+
+        $urlInfo = parse_url($CFG->wwwroot);
+        $xml->attribute("domain", $urlInfo['host']);
+
+        return $xml;
     }
 }
 ?>

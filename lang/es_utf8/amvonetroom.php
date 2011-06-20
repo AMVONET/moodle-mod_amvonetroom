@@ -25,6 +25,7 @@ $string['key_hint'] = 'Registra tu módulo AMVONET Room en www.amvonet.com y obt
 $string['label_domain'] = 'Dominio';
 $string['label_version'] = 'Versión';
 $string['label_status'] = 'Estatus';
+$string['label_warning'] = 'Advertencia';
 
 $string['label_version_lite'] = 'Lite';
 $string['label_version_pro'] = 'Pro';
@@ -46,4 +47,7 @@ $string['error_version_incompatible'] = 'master.amvonet.com no soporta la versi�
 $string['error_version_too_old'] = 'El módulo AMVONET Room tiene una versión muy antigua. Por favor, actualice el módulo.';
 $string['error_unavailable'] = 'master.amvonet.com no está actualmente disponible.';
 $string['error_key_not_defined'] = 'El módulo AMVONET Room no esta registrado.';
+
+// warnings
+$string['warn_no_crossdomain'] = 'Política entre sitios no se actualizó correctamente. Remítase a la Guía de Instalación para detalles.' ;
 ?>

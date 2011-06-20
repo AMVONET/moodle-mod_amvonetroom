@@ -1,5 +1,6 @@
 <?php
 require_once ($CFG->dirroot.'/course/moodleform_mod.php');
+require_once ($CFG->dirroot.'/mod/amvonetroom/class.User.php');
 
 class mod_amvonetroom_mod_form extends moodleform_mod {
 
@@ -23,8 +24,8 @@ class mod_amvonetroom_mod_form extends moodleform_mod {
 
         $current_time = time();
 
-        $moderators = get_users_by_capability (get_context_instance(CONTEXT_COURSE, $COURSE->id), 'mod/amvonetroom:moderator');
-
+        $moderators = amvonetroom_User::getModerators($COURSE->id);
+        
         $options=array();
 
         $user_is_teacher = FALSE;

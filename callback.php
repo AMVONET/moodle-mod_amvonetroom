@@ -1,33 +1,24 @@
 <?php
 
+require_once("../../config.php");
 require_once('class.Version.php');
 require_once('class.User.php');
+require_once('class.XmlResponse.php');
 
-ProtoVersion::checkRequest();
+amvonetroom_ProtoVersion::checkRequest();
 
-/**
- * First, try to include lightweight amvonet.config.php because original config.php contains database requests
- * and slow down login process (callback.php called from media-server on user login).
- */
-if (file_exists("../../amvonet.config.php")) {
-    require_once("../../amvonet.config.php");
-} else {
-    require_once("../../config.php");
-}
+$token = optional_param('token', null, PARAM_ALPHANUM);
+$sessionId = optional_param('sessionId', null, PARAM_SAFEDIR);
 
-
-$token = @$_GET['token'];
-
-if (!$token) {
+if (empty($token) || empty($sessionId)) {
 	header ("HTTP/1.1 400 Bad Request");
     die();
 }
 
-if ($user = User::getByToken($token)) {
-    header("Content-Type: text/xml;charset=UTF-8");
-    header("Content-Length: " . strlen($user));
-	echo $user;
+if ($access = amvonetroom_User::getAccessByToken($token, $sessionId)) {
+    $response = amvonetroom_User::getAsXml($access->user, $access->role);
+    $response->send();
 } else {
-	header ("HTTP/1.1 401 Unauthorized");
+	header ("HTTP/1.1 403 Forbidden");
 }
 ?>

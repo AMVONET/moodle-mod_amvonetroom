@@ -1,26 +1,27 @@
 <?php
 
-require_once("class.HttpRequest.php");
-require_once("class.Version.php");
+require_once("$CFG->dirroot/mod/amvonetroom/class.HttpRequest.php");
+require_once("$CFG->dirroot/mod/amvonetroom/class.Version.php");
 
-define ("PASSPORT_URL", "http://master.amvonet.com/amvonet/passport");
-define ("UPGRADE_URL", "http://master.amvonet.com/amvonet/upgrade");
-define ("PLUGIN_URL", "http://master.amvonet.com/amvonet/plugin");
+define ("AMVONETROOM_PASSPORT_URL", "http://master.amvonet.com/amvonet/passport");
+define ("AMVONETROOM_UPGRADE_URL", "http://master.amvonet.com/amvonet/upgrade");
+define ("AMVONETROOM_PLUGIN_URL", "http://master.amvonet.com/amvonet/plugin");
 
-define ("STATUS_ACTIVE", "active");
-define ("STATUS_BLOCKED", "blocked");
+define ("AMVONETROOM_STATUS_ACTIVE", "active");
+define ("AMVONETROOM_STATUS_BLOCKED", "blocked");
 
-define ("TYPE_FREE", "free");
-define ("TYPE_TRIAL", "trial");
-define ("TYPE_COM", "com");
+define ("AMVONETROOM_TYPE_FREE", "free");
+define ("AMVONETROOM_TYPE_TRIAL", "trial");
+define ("AMVONETROOM_TYPE_COM", "com");
 
-class SchoolPassport {
+class amvonetroom_SchoolPassport {
     private static $instance = FALSE;
     private static $error = NULL;
 
     private $domain;
     private $expire;
     private $protoVersion;
+    private $pluginVersion;
     private $entrypoint;
     private $status;
     private $type;
@@ -32,11 +33,12 @@ class SchoolPassport {
         $passport = new SimpleXMLElement($xml);
         $this->domain = (string)$passport['domain'];
         $this->expire = (int)$passport['expire'];
-        $this->protoVersion = (string)$passport->protoVersion;
         $this->entrypoint = (string)$passport->entrypoint;
         $this->status = (string)$passport->status;
         $this->type = (string)$passport->type;
         $this->version = (string)$passport->version;
+        $this->protoVersion = (string)$passport->lms->protoVersion;
+        $this->pluginVersion = (string)$passport->lms->pluginVersion;
         $this->expirationDate = (string)$passport->limits->expiration;
     }
 
@@ -46,6 +48,10 @@ class SchoolPassport {
 
     public function getProtoVersion() {
         return $this->protoVersion;
+    }
+
+    public function getPluginVersion() {
+        return $this->pluginVersion;
     }
 
     public function getEntryPoint() {
@@ -69,8 +75,23 @@ class SchoolPassport {
     }
 
     public static function getKey() {
-        $k = get_record ("config_plugins", "plugin", "amvonetroom", "name", "school_key");
-        return $k ? $k->value : "";
+        $k = get_record ('config_plugins', 'plugin', 'amvonetroom', 'name', 'school_key');
+        return $k ? $k->value : '';
+    }
+
+    public static function setKey($key) {
+        $k = get_record ('config_plugins', 'plugin', 'amvonetroom', 'name', 'school_key');
+        if (!$k) {
+            $k = new stdClass();
+            $k->id = 0;
+            $k->plugin = 'amvonetroom';
+            $k->name = 'school_key';
+            $k->value = $key;
+            insert_record('config_plugins', $k);
+        } else {
+            $k->value = $key;
+            update_record('config_plugins', $k);
+        }
     }
 
     public static function get() {
@@ -95,10 +116,15 @@ class SchoolPassport {
             self::$instance = self::loadFromXml($key);
             if (self::$instance) {
                 // check version and upgrade if necessary
-                $storedVersion = new Version(self::$instance->getProtoVersion());
-                $myVersion = ProtoVersion::getCurrent();
-                if ($myVersion->compare($storedVersion) != 0) {
-                    if (!self::upgrade($key, $myVersion))
+                $storedProtoVersion = new amvonetroom_Version(self::$instance->getProtoVersion());
+                $storedPluginVersion = new amvonetroom_Version(self::$instance->getPluginVersion());
+
+                $myProtoVersion = amvonetroom_ProtoVersion::getCurrent();
+                $myPluginVersion = amvonetroom_PluginVersion::getCurrent();
+
+                if (($myProtoVersion->compare($storedProtoVersion) != 0) ||
+                    ($myPluginVersion->compare($storedPluginVersion) != 0)) {
+                    if (!self::upgrade($key, $myProtoVersion, $myPluginVersion))
                         self::$instance = FALSE;
                 }
             }
@@ -137,11 +163,11 @@ class SchoolPassport {
             return FALSE;
         }
 
-        $url = PASSPORT_URL . '?key=' . urlencode($key) . '&protoVersion=' . ProtoVersion::getCurrent();
-        $req = new HttpRequest("GET", $url);
+        $url = AMVONETROOM_PASSPORT_URL . '?key=' . urlencode($key) . '&protoVersion=' . amvonetroom_ProtoVersion::getCurrent();
+        $req = new amvonetroom_HttpRequest("GET", $url);
 
         if ($req->send(NULL)) {
-            $instance = new SchoolPassport($req->getResponse());
+            $instance = new amvonetroom_SchoolPassport($req->getResponse());
             $instance->key = $key;
             if ($instance->expire) {
                 // convert expiration time from relative to absolute
@@ -159,9 +185,9 @@ class SchoolPassport {
         return $instance;
     }
 
-    private static function upgrade($key, $version) {
-        $url = UPGRADE_URL . '?key=' . urlencode($key) . '&protoVersion=' . $version;
-        $req = new HttpRequest("GET", $url);
+    private static function upgrade($key, $protoVersion, $pluginVersion) {
+        $url = AMVONETROOM_UPGRADE_URL . '?key=' . urlencode($key) . '&protoVersion=' . $protoVersion . '&pluginVersion=' . $pluginVersion->toLongString();
+        $req = new amvonetroom_HttpRequest("GET", $url);
         $req->send(NULL);
         $ret = self::parseError($req);
         $req->close();

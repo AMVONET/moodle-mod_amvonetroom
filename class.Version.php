@@ -1,21 +1,27 @@
 <?php
 
-define ("AMVONET_PROTOCOL_VERSION", "2.0");
+define ("AMVONETROOM_PROTOCOL_VERSION", "2.1");
 
-class Version {
+class amvonetroom_Version {
 
-    private $major = 2;
+    private $major = 0;
     private $minor = 0;
+    private $build = 0;
+    private $revision = 0;
 
     public function __construct ($major, $minor = 0) {
         if (!$major)
             return;
         if (is_string($major)) {
-            $v = split("\\.", $major);
+            $v = split('\.', $major);
             if (count($v) > 0)
                 $this->major = intval($v[0]);
             if (count($v) > 1)
                 $this->minor = intval($v[1]);
+            if (count($v) > 2)
+                $this->build = intval($v[2]);
+            if (count($v) > 3)
+                $this->revision = intval($v[3]);
         }
         else {
             $this->major = $major;
@@ -31,15 +37,40 @@ class Version {
         return $this->minor;
     }
 
+    public function getBuild() {
+        return $this->build;
+    }
+
+    public function getRevision() {
+        return $this->revision;
+    }
+
     public function __toString() {
-        return $this->major . "." . $this->minor;
+        return $this->toShortString();
+    }
+
+    public function toShortString() {
+        return $this->major . '.' . $this->minor;
+    }
+
+    public function toLongString() {
+        return $this->major . '.' . $this->minor . '.' . $this->build . ($this->revision != 0 ? '.' . $this->revision : '');
     }
 
     public function compare($other) {
         $cmp = $this->major - $other->getMajor();
         if ($cmp != 0)
             return $cmp;
-        return $this->minor - $other->getMinor();
+
+        $cmp = $this->minor - $other->getMinor();
+        if ($cmp != 0)
+            return $cmp;
+
+        $cmp = $this->build - $other->getBuild();
+        if ($cmp != 0)
+            return $cmp;
+
+        return $this->revision - $other->getRevision();
     }
 
     /**
@@ -60,38 +91,41 @@ class Version {
     }
 }
 
-class ProtoVersion {
+class amvonetroom_ProtoVersion {
 
     /**
-     * Returns a current version of the plugin.
+     * Returns a current protocol version supported be plugin.
      */
     public static function getCurrent() {
-        return new Version(AMVONET_PROTOCOL_VERSION);
+        return new amvonetroom_Version(AMVONETROOM_PROTOCOL_VERSION);
     }
 
     public static function getDefault() {
-        return new Version(2, 0);
+        return new amvonetroom_Version(2, 0);
     }
 
     /**
-     * Returns a version of the current HTTP request.
+     * Returns a protocol version of the current HTTP request.
      */
     public static function getFromRequest() {
-        $param = @$_GET["protoVersion"];
+        // there is no suitable PARAM_XXX flag in Moodle to clean this parameter but
+        // don't worry it will be split and parsed as two int and it's never used in raw form
+        $param = @$_GET['protoVersion'];
         if ($param && !empty($param))
-            return new Version($param);
+            return new amvonetroom_Version($param);
 
-        return ProtoVersion::getDefault();
+        return amvonetroom_ProtoVersion::getDefault();
     }
 
     /**
      * Check a compatibility of a protocol version of the current request.
      */
     public static function checkRequest($ver = null) {
-        $requestVersion = empty($ver) ? ProtoVersion::getFromRequest() : new Version($ver);
-        $currentVersion = ProtoVersion::getCurrent();
+        $requestVersion = empty($ver) ? amvonetroom_ProtoVersion::getFromRequest() : new amvonetroom_Version($ver);
+        $currentVersion = amvonetroom_ProtoVersion::getCurrent();
 
-        if (!$currentVersion->compatible($requestVersion)) {
+        $v20 = new amvonetroom_Version(2,0);
+        if (!$currentVersion->compatible($requestVersion) || $requestVersion->compare($v20) <= 0) {
             if ($currentVersion->compare($requestVersion) < 0) {
                 header ("HTTP/1.1 460 Version Incompatible");
                 die("460 Version Incompatible");
@@ -100,6 +134,21 @@ class ProtoVersion {
                 die("461 Version Too Old");
             }
         }
+    }
+}
+
+class amvonetroom_PluginVersion {
+
+    /**
+     * Returns a current version of the plugin.
+     */
+    public static function getCurrent() {
+        global $CFG;
+
+        if ($data = file_get_contents("$CFG->dirroot/mod/amvonetroom/revision"))
+            return new amvonetroom_Version($data);
+        else
+            return new amvonetroom_Version(0);
     }
 }
 ?>
