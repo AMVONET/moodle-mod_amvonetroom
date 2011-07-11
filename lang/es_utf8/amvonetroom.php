@@ -34,7 +34,7 @@ $string['label_version_type_free'] = 'Libre';
 $string['label_version_type_trial'] = 'Prueba';
 $string['label_version_type_com'] = 'Comercial';
 
-$string['link_register'] = 'Registro';
+$string['link_register'] = 'Registro de módulo';
 $string['link_buy'] = 'Comprar';
 $string['link_account'] = 'Mi Cuenta';
 $string['link_support'] = 'Soporte';

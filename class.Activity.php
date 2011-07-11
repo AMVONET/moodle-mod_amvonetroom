@@ -20,7 +20,7 @@ class amvonetroom_Activity {
 
         $room->id = $id;
 
-        if (!amvonetroom_User::registerUser($user, $room)) {
+        if (!amvonetroom_User::registerUser($user)) {
             self::setError(amvonetroom_User::getError());
             return FALSE;
         }
@@ -53,7 +53,7 @@ class amvonetroom_Activity {
             return FALSE;
         }
 
-        if (!amvonetroom_User::registerUser($user, $room)) {
+        if (!amvonetroom_User::registerUser($user)) {
             self::setError(amvonetroom_User::getError());
             return FALSE;
         }
@@ -86,7 +86,7 @@ class amvonetroom_Activity {
         // trying to delete as much as possible
 
         // delete amvonet room on server
-        if (amvonetroom_User::registerUser($user, $room)) {
+        if (amvonetroom_User::registerUser($user)) {
             $session = new amvonetroom_Session ($room->uid);
             if (!$session->delete()) {
                 $err .= $session->getError() . "\n";

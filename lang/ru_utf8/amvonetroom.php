@@ -34,7 +34,7 @@ $string['label_version_type_free'] = 'Бесплатный';
 $string['label_version_type_trial'] = 'Триал';
 $string['label_version_type_com'] = 'Коммерческий';
 
-$string['link_register'] = 'Зарегистрировать';
+$string['link_register'] = 'Зарегистрировать модуль';
 $string['link_buy'] = 'Купить';
 $string['link_account'] = 'Моя учетная запись';
 $string['link_support'] = 'Техподдержка';

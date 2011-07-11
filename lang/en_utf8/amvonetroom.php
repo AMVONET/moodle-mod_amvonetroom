@@ -34,7 +34,7 @@ $string['label_version_type_free'] = 'Free';
 $string['label_version_type_trial'] = 'Trial';
 $string['label_version_type_com'] = 'Commercial';
 
-$string['link_register'] = 'Register';
+$string['link_register'] = 'Register plugin';
 $string['link_buy'] = 'Buy';
 $string['link_account'] = 'My Account';
 $string['link_support'] = 'Support';
