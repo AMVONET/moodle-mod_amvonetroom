@@ -46,7 +46,7 @@ if ($uid) {
         die("Session not found");
     }
 
-    $token = amvonetroom_User::registerUser($USER, $room);
+    $token = amvonetroom_User::registerUser($USER);
 
     $url = amvonetroom_Server::balancerRedirect($passport->getEntryPoint(), "endpoint/{$room->uid}");
 

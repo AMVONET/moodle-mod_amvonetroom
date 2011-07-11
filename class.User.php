@@ -15,11 +15,9 @@ class amvonetroom_User {
      * Creates temporary file with unique name with user information.
      *
      * @param object $user - Moodle's user
-     * @param object $room - AMVONET room instance
      * @return string token
      */
-    public static function registerUser($user, $room) {
-        global $CFG;
+    public static function registerUser($user) {
         self::clearError();
 
         // first, clean expired tokens
@@ -261,6 +259,16 @@ class amvonetroom_User {
         $xml->attribute("domain", $urlInfo['host']);
 
         return $xml;
+    }
+
+    /**
+     * Checks Moodle authentication.
+     */
+    public static function checkAuthentication($user) {
+        if ($user->id == 0) {
+            header ("HTTP/1.1 401 Unauthorized");
+            die();
+        }
     }
 }
 ?>
