@@ -1,14 +1,13 @@
 <?php
 
+require_once("$CFG->dirroot/mod/amvonetroom/class.Exception.php");
 require_once("$CFG->dirroot/mod/amvonetroom/class.HttpRequest.php");
-require_once("$CFG->dirroot/mod/amvonetroom/class.Version.php");
 require_once("$CFG->dirroot/mod/amvonetroom/class.SchoolPassport.php");
 require_once("$CFG->dirroot/mod/amvonetroom/class.Server.php");
 require_once("$CFG->dirroot/mod/amvonetroom/class.User.php");
 
 class amvonetroom_Session {
     private $uid;
-    private $error;
 
     /**
      * Constructor
@@ -16,19 +15,6 @@ class amvonetroom_Session {
      */
     public function __construct ($uid) {
         $this->uid = $uid;
-        $this->error = NULL;
-    }
-
-    /**
-     *
-     * @return string error or NULL
-     */
-    public function getError () {
-        return $this->error;
-    }
-
-    public function clearError() {
-        $this->error = NULL;
     }
 
     public function getId() {
@@ -42,13 +28,7 @@ class amvonetroom_Session {
      * @return boolean result
      */
     public function create ($course, $name, $info) {
-        $this->clearError();
-
         $passport = amvonetroom_SchoolPassport::get();
-        if (!$passport) {
-            $this->error = amvonetroom_SchoolPassport::getError();
-            return FALSE;
-        }
 
         $session = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><session/>');
         $session->addAttribute("id", $this->uid);
@@ -66,24 +46,17 @@ class amvonetroom_Session {
 
         $req = new amvonetroom_HttpRequest("PUT", $serverUrl);
         $req->setContentType("text/xml");
-        if (!$req->send($data)) {
-            $this->error = $req->getError();
-        } else {
+        try {
+            $req->send($data);
             $this->uid = $req->getResponse();
+        } catch (amvonetroom_Exception $e) {
+            throw $e;
         }
         $req->close();
-
-        return $this->error === NULL;
     }
 
     public function update($name, $info) {
-        $this->clearError();
-
         $passport = amvonetroom_SchoolPassport::get();
-        if (!$passport) {
-            $this->error = amvonetroom_SchoolPassport::getError();
-            return FALSE;
-        }
 
         $serverUrl = amvonetroom_Server::balancerProxy($passport->getEntryPoint(), "rpc/$this->uid/update");
         $serverUrl .= "&name=" . urlencode($name);
@@ -93,12 +66,12 @@ class amvonetroom_Session {
 
         $req = new amvonetroom_HttpRequest("POST", $serverUrl);
         $req->setContentType("text/plain; charset=UTF-8");
-        if (!$req->send($info)) {
-            $this->error = $req->getError();
+        try {
+            $req->send($info);
+        } catch (amvonetroom_Exception $e) {
+            throw $e;
         }
         $req->close();
-
-        return $this->error === NULL;
     }
 
     /**
@@ -107,26 +80,20 @@ class amvonetroom_Session {
      * @return boolean result
      */
     public function delete() {
-        $this->clearError();
-
         $passport = amvonetroom_SchoolPassport::get();
-        if (!$passport) {
-            $this->error = amvonetroom_SchoolPassport::getError();
-            return FALSE;
-        }
-
+        
         $serverUrl = amvonetroom_Server::balancerProxy($passport->getEntryPoint(), "rpc/$this->uid/delete");
         $token = amvonetroom_User::getToken();
         if (!empty($token))
             $serverUrl .= "&token=$token";
         
         $req = new amvonetroom_HttpRequest("GET", $serverUrl);
-        if (!$req->send(NULL)) {
-            $this->error = $req->getError();
+        try {
+            $req->send();
+        } catch (amvonetroom_Exception $e) {
+            throw $e;
         }
         $req->close();
-
-        return $this->error === NULL;
     }
 }
 ?>

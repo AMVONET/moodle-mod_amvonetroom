@@ -1,5 +1,7 @@
 <?php
 
+require_once("$CFG->dirroot/mod/amvonetroom/class.Exception.php");
+
 define ("AMVONETROOM_ROLE_STUDENT", "st");
 define ("AMVONETROOM_ROLE_MODERATOR", "mu");
 define ("AMVONETROOM_ROLE_GUEST_MODERATOR", "gmu");
@@ -7,7 +9,6 @@ define ("AMVONETROOM_ROLE_GUEST_MODERATOR", "gmu");
 define ("AMVONETROOM_USER_TIME_CACHE", 60 * 60 * 24);
 
 class amvonetroom_User {
-    private static $error = NULL;
     private static $token = NULL;
 
     /**
@@ -16,31 +17,33 @@ class amvonetroom_User {
      *
      * @param object $user - Moodle's user
      * @return string token
+     * @throws dml_exception, amvonetroom_Exception
      */
     public static function registerUser($user) {
-        self::clearError();
+        global $DB, $SESSION;
 
         // first, clean expired tokens
         self::clean();
 
         // second, check the token already presented in db
-        $access = get_record("amvonetroom_access", "user_id", $user->id);
+        $access = $DB->get_record("amvonetroom_access", array("user_id" => $user->id));
         if ($access) {
             // refresh token
             $access->last_access = time();
-            update_record("amvonetroom_access", $access);
+            $access->lang = $SESSION->lang;
+            $DB->update_record("amvonetroom_access", $access);
         } else {
             // third, if no token in db or its expired then generate new one
             $access = new stdClass();
             $access->token = uniqid();
             $access->user_id = $user->id;
             $access->last_access = time();
+            $access->lang = $SESSION->lang;
 
-            $id = insert_record("amvonetroom_access", $access);
-            if (!$id) {
-                self::$error = "Unable to generate security token";
-                return FALSE;
-            }
+            $id = $DB->insert_record("amvonetroom_access", $access);
+            if (!$id)
+                amvonetroom_error("Unable to generate security token"); // TODO: place to locale
+
             $access->id = $id;
         }
         self::setToken($access->token);
@@ -56,6 +59,7 @@ class amvonetroom_User {
      *   token
      *   user_id
      *   last_access
+     *   lang
      *   room
      *     id
      *     uid
@@ -70,24 +74,19 @@ class amvonetroom_User {
      * @return mixed access object or false if failed
      */
     public static function getAccessByToken ($token, $sessionId) {
-        global $CFG;
+        global $DB;
 
-        self::clearError();
-
-        $meta = get_record_sql("SELECT u.*, a.id AS access_id, a.token, a.user_id, a.last_access, r.id AS room_id, r.uid, r.course, r.moderator
-            FROM {$CFG->prefix}user u, {$CFG->prefix}amvonetroom r, {$CFG->prefix}amvonetroom_access a
+        $meta = $DB->get_record_sql("
+            SELECT u.*, a.id AS access_id, a.token, a.user_id, a.last_access, a.lang AS access_lang, r.id AS room_id, r.uid, r.course, r.moderator
+            FROM {user} u, {amvonetroom} r, {amvonetroom_access} a
             WHERE a.token='$token' AND a.user_id=u.id AND r.uid='$sessionId'");
 
-        if (!$meta) {
-            self::$error = "Forbidden";
-            return FALSE;
-        }
+        if (!$meta)
+            amvonetroom_error("Forbidden", 403); // TODO: place to locale
 
         $ttl = time() - AMVONETROOM_USER_TIME_CACHE;
-        if (intval($meta->last_access) < $ttl) {
-            self::$error = "Forbidden";
-            return FALSE;
-        }
+        if (intval($meta->last_access) < $ttl)
+            amvonetroom_error("Forbidden", 403); // TODO: place to locale
 
         // re-compound to linked objects
         $access = new stdClass();
@@ -95,6 +94,7 @@ class amvonetroom_User {
         $access->token = $meta->token; unset($meta->token);
         $access->last_access = time();
         $access->user_id = $meta->user_id; unset($meta->user_id);
+        $access->lang = $meta->access_lang; unset($meta->access_lang);
 
         $room = new stdClass();
         $room->id = $meta->room_id; unset($meta->room_id);
@@ -107,23 +107,38 @@ class amvonetroom_User {
         /////////////////////////////////
 
         $access->role = self::getRole($access->user, $access->room);
-        if (empty($access->role)) {
-            self::$error = "Forbidden";
-            return FALSE;
-        }
+        if (empty($access->role))
+            amvonetroom_error("Forbidden", 403); // TODO: place to locale
 
-        update_record("amvonetroom_access", $access);
+        $DB->update_record("amvonetroom_access", $access);
 
         return $access;
     }
 
+    /**
+     * @static
+     * Check MU permissions and throw an exception if access denied.
+     *
+     * @param $access is $ACCESS
+     * @return void
+     * @throws amvonetroom_Exception
+     */
     public static function ensureMuPrivileges($access) {
         if ($access->role != AMVONETROOM_ROLE_MODERATOR && $access->role != AMVONETROOM_ROLE_GUEST_MODERATOR) {
-            self::$error = "Forbidden";
-            return FALSE;
+            amvonetroom_error("Forbidden"); // TODO Place to locale
         }
+    }
 
-        return TRUE;
+    /**
+     * @static
+     * Check MU permissions and stop request if access denied.
+     *
+     * @param $access is $ACCESS
+     * @return void
+     */
+    public static function checkMuPrivileges($access) {
+        if ($access->role != AMVONETROOM_ROLE_MODERATOR && $access->role != AMVONETROOM_ROLE_GUEST_MODERATOR)
+            amvonetroom_die(403);            
     }
 
     public static function getToken() {
@@ -135,10 +150,10 @@ class amvonetroom_User {
     }
 
     private static function clean() {
-        global $CFG;
+        global $DB;
 
         $ttl = time() - AMVONETROOM_USER_TIME_CACHE;
-        delete_records_select("amvonetroom_access", "last_access < $ttl");
+        $DB->delete_records_select("amvonetroom_access", "last_access < $ttl");
     }
 
     /**
@@ -149,20 +164,22 @@ class amvonetroom_User {
      * @return string role
      */
     public static function getRole($user, $room) {
-        $role = "";
 
-        if ((int)$room->moderator === (int)$user->id) {
-            $role = AMVONETROOM_ROLE_MODERATOR;
-        } else {
-            $ctx = get_context_instance(CONTEXT_COURSE, $room->course);
-            if (has_capability('moodle/course:manageactivities', $ctx, $user->id)) {
-                $role = AMVONETROOM_ROLE_GUEST_MODERATOR;
-            } else if (has_capability('moodle/course:view', $ctx, $user->id)) {
-                $role = AMVONETROOM_ROLE_STUDENT;
-            }
-        }
+        if ((int)$room->moderator === (int)$user->id)
+            return AMVONETROOM_ROLE_MODERATOR;
 
-        return $role;
+        $context = get_context_instance(CONTEXT_COURSE, $room->course);
+        if (has_capability('moodle/course:manageactivities', $context, $user->id))
+            return AMVONETROOM_ROLE_GUEST_MODERATOR;
+
+        // Since Moodle 2.0 the 'moodle/course:view' does not indicate
+        // that an user has a permission to view a course,
+        // so we need to check an enrolment.        
+        $courses = enrol_get_users_courses($user->id);
+        if (!empty($courses[$room->course]))
+            return AMVONETROOM_ROLE_STUDENT;
+
+        return '';
     }
 
     /**
@@ -176,19 +193,6 @@ class amvonetroom_User {
         return get_users_by_capability (
             get_context_instance(CONTEXT_COURSE, $courseId),
             'moodle/course:manageactivities'
-        );
-    }
-
-    /**
-     * Returns list of users who have course:view capability.
-     *
-     * @param int $courseId course id
-     * @return array of user instances
-     */
-    public static function getParticipants($courseId) {
-        return get_users_by_capability (
-            get_context_instance(CONTEXT_COURSE, $courseId),
-            'moodle/course:view'
         );
     }
 
@@ -222,18 +226,6 @@ class amvonetroom_User {
 	}
 
     /**
-     *
-     * @return string error or NULL
-     */
-    public static function getError () {
-        return self::$error;
-    }
-
-    public static function clearError() {
-        self::$error = NULL;
-    }
-
-    /**
      * Formats and returns user information for callback.
      * Used to return user info to media-server alse.
      *
@@ -265,10 +257,8 @@ class amvonetroom_User {
      * Checks Moodle authentication.
      */
     public static function checkAuthentication($user) {
-        if ($user->id == 0) {
-            header ("HTTP/1.1 401 Unauthorized");
-            die();
-        }
+        if ($user->id == 0)
+            amvonetroom_die(401);
     }
 }
 ?>

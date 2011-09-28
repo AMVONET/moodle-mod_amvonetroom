@@ -1,7 +1,9 @@
-﻿<?php
+<?php
 
 $string['modulenameplural'] = 'AMVONET Комната';
 $string['modulename'] = 'AMVONET Комната';
+$string['pluginname'] = 'AMVONET Комната';
+$string['pluginadministration'] = 'Администрирование AMVONET Комнаиы';
 
 $string['formatdate'] = 'Y-m-d h:i';
 

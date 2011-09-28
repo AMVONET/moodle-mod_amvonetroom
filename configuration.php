@@ -1,6 +1,7 @@
 <?php
 
 require_once("../../config.php");
+require_once('class.Exception.php');
 require_once('class.SchoolPassport.php');
 require_once('class.Version.php');
 require_once("class.Server.php");
@@ -12,38 +13,31 @@ amvonetroom_User::checkAuthentication($USER);
 $sessionId = optional_param('sessionId', null, PARAM_SAFEDIR);
 $recordId = optional_param('recordId', null, PARAM_SAFEDIR);
 
-if (empty($sessionId)) {
-	header("HTTP/1.1 400 Bad Request");
-    die();
-}
+if (empty($sessionId))
+    amvonetroom_die(400);
 
-$passport = amvonetroom_SchoolPassport::get();
-if (!$passport) {
-    header("HTTP/1.1 500 Internal Server Error");
-    die();
-}
-if ($passport->getStatus() == AMVONETROOM_STATUS_BLOCKED) {
-    header("HTTP/1.1 403 Forbidden");
-    die();
-}
+try {
+    $passport = amvonetroom_SchoolPassport::get();
+    if ($passport->getStatus() == AMVONETROOM_STATUS_BLOCKED)
+        amvonetroom_die(403);
 
-$room = get_record("amvonetroom", "uid", $sessionId);
-if (!$room) {
-    header("HTTP/1.1 404 Not Found");
-    die();
+    $room = $DB->get_record("amvonetroom", array("uid" => $sessionId));
+    if (!$room)
+        amvonetroom_die(404);
+
+    $token = amvonetroom_User::registerUser($USER);
+
+    $url = amvonetroom_Server::balancerRedirect($passport->getEntryPoint(), "configuration")
+        . "&sessionId=" . $sessionId
+        . "&token=" . $token;
+
+    if (!empty($recordId))
+        $url .= "&recordId=" . $recordId;
+
+    redirect($url);
+
+} catch (Exception $e) {
+    amvonetroom_die(500);
 }
-
-$token = amvonetroom_User::registerUser($USER);
-if (!$token) {
-    header("HTTP/1.1 500 Internal Server Error");
-    die();
-}
-
-$url = amvonetroom_Server::balancerRedirect($passport->getEntryPoint(), "configuration")
-    . "&sessionId=$sessionId"
-    . (!empty($recordId) ? "&recordId=$recordId" : "")
-    . "&token=$token";
-
-redirect($url);
 
 ?>

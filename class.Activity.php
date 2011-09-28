@@ -1,84 +1,82 @@
 <?php
 
-class amvonetroom_Activity {
-    private static $error = NULL;
-    
-    public static function create($room, $user) {
-        self::clearError();
+require_once("$CFG->dirroot/mod/amvonetroom/class.Exception.php");
 
+class amvonetroom_Activity {
+
+    public static function create($room, $user) {
+        global $DB;
+
+        $id = 0;
         $room->id = 0;
         // we use temporary uid for new session this is necessary to
         //  a. satisfy uid unique index
         //  b. pass callback authorization
         $room->uid = uniqid();
 
-        // we need to insert record before server-call to pass callback authorization
-        if (!$id = insert_record('amvonetroom', $room)) {
-            self::setError('Unable to insert amvonetroom instance.');
-            return FALSE;
-        }
+        try {
+            // we need to insert record before server-call to pass callback authorization
+            $id = $DB->insert_record('amvonetroom', $room);
 
-        $room->id = $id;
+            $room->id = $id;
 
-        if (!amvonetroom_User::registerUser($user)) {
-            self::setError(amvonetroom_User::getError());
-            return FALSE;
-        }
+            amvonetroom_User::registerUser($user);
 
-        $session = new amvonetroom_Session ($room->uid);
-        // $room->name and introduction_text are escaped with slashes, so we need to unescape them
-        if (!$session->create($room->course, stripslashes($room->name), stripslashes($room->introduction_text))) {
-            delete_records('amvonetroom', 'id', $id);
+            $session = new amvonetroom_Session ($room->uid);
+            $session->create($room->course, $room->name, $room->introduction_text);
 
-            self::setError($session->getError());
-		    return FALSE;
-        }
+            $room->uid = $session->getId(); //UID set to new generated value
 
-	    $room->uid = $session->getId(); //UID set to new generated value
-    	if(!update_record('amvonetroom', $room)) {
-            delete_records('amvonetroom', 'id', $id);
+            $DB->update_record('amvonetroom', $room);
 
-            self::setError('Unable to update amvonetroom uid.');
-		    return FALSE;
+        } catch(dml_exception $e) {
+            // cleanup for a broken record
+            try {
+                $DB->delete_records('amvonetroom', array('id' => $id));
+            } catch(Exception $e) {
+            }
+
+            amvonetroom_error('Unable to insert amvonetroom instance.'); // TODO: place to locale
+
+        } catch(Exception $e) {
+            // cleanup for a broken record
+            try {
+                $DB->delete_records('amvonetroom', array('id' => $id));
+            } catch(Exception $e) {
+            }
+
+            throw $e;
         }
 
         return $id;
     }
 
     public static function update($room, $user) {
-        self::clearError();
+        global $DB;
 
         if ($room->uid == '1' || $room->uid == '2') {
-            self::setError('It is system activity. You cannot update the activity.');
-            return FALSE;
+            amvonetroom_error('It is system activity. You cannot update the activity.'); // TODO: place to locale
         }
 
-        if (!amvonetroom_User::registerUser($user)) {
-            self::setError(amvonetroom_User::getError());
-            return FALSE;
-        }
+        try {
+            amvonetroom_User::registerUser($user);
 
-        $session = new amvonetroom_Session ($room->uid);
-        // $room->name and introduction_text are escaped with slashes, so we need to unescape them
-        if (!$session->update(stripslashes($room->name), stripslashes($room->introduction_text))) {
-            self::setError($session->getError());
-            return FALSE;
-        }
+            $session = new amvonetroom_Session ($room->uid);
+            $session->update($room->name, $room->introduction_text);
 
-	    if (!update_record("amvonetroom", $room)) {
-            self::setError('Unable to update amvonetroom instance.');
-            return FALSE;
-        }
+            $DB->update_record('amvonetroom', $room);
 
-        return TRUE;
+        } catch(dml_exception $e) {
+            amvonetroom_error('Unable to insert amvonetroom instance.'); // TODO: place to locale
+        }
     }
 
     public static function delete($id, $user) {
-        self::clearError();
+        global $DB;
 
-        if (!$room = get_record("amvonetroom", "id", "$id")) {
-            return TRUE;
-        }
+        $room = $DB->get_record("amvonetroom", array("id" => "$id"));
+        if (!$room)
+            return;
 
         // error log
         $err = "";
@@ -86,66 +84,40 @@ class amvonetroom_Activity {
         // trying to delete as much as possible
 
         // delete amvonet room on server
-        if (amvonetroom_User::registerUser($user)) {
-            $session = new amvonetroom_Session ($room->uid);
-            if (!$session->delete()) {
-                $err .= $session->getError() . "\n";
-            }
-        } else {
-            $err .= amvonetroom_User::getError() . "\n";
+        try {
+            amvonetroom_User::registerUser($user);
+            $session = new amvonetroom_Session($room->uid);
+            $session->delete();
+
+        } catch(moodle_exception $e) {
+            $err .= $e->getMessage() . "\n";
         }
 
-        if (!delete_records('amvonetroom', 'id', $id)) {
-            $err .= 'Unable to delete amvonetroom instance.' . "\n";
+        try {
+            $DB->delete_records('amvonetroom', array('id' => $id));
+        } catch(dml_exception $e) {
+            $err .= "Unable to delete amvonetroom instance.\n"; // TODO: place to locale
         }
 
         // delete any dependent records
         $pagetypes = page_import_types('mod/amvonetroom/');
         if ($pagetypes) {
             foreach($pagetypes as $pagetype) {
-                if (!delete_records('block_instance', 'pageid', $room->id, 'pagetype', $pagetype)) {
-                    $err .= "Unable to delete blocks [$pagetype].\n";
+                try {
+                    $DB->delete_records('block_instance', array('pageid' => $room->id, 'pagetype' => $pagetype));
+                } catch(dml_exception $e) {
+                    $err .= "Unable to delete blocks [$pagetype].\n"; // TODO: place to locale
                 }
             }
         }
 
-        if (!delete_records('event', 'modulename', 'amvonetroom', 'instance', $room->id)) {
-            $err .= "Unable to delete events.\n";
+        try {
+            $DB->delete_records('event', array('modulename' => 'amvonetroom', 'instance' => $room->id));
+        } catch(dml_exception $e) {
+            $err .= "Unable to delete events.\n"; // TODO: place to locale
         }
 
-        if (!empty($err)) {
-            self::setError($err);
-            return FALSE;
-        }
-
-        return TRUE;
-    }
-
-    /**
-     * @return string error or NULL
-     */
-    public static function getError () {
-        return self::$error;
-    }
-
-    /**
-     * Clears last error.
-     *
-     * @static
-     * @return void
-     */
-    public static function clearError() {
-        self::$error = NULL;
-    }
-
-    /**
-     * Sets error message.
-     * 
-     * @static
-     * @param  $msg
-     * @return void
-     */
-    public static function setError($msg) {
-        self::$error = $msg;
+        if (!empty($err))
+            amvonetroom_error($err);
     }
 }

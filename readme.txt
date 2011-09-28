@@ -27,7 +27,7 @@ To find out more visit: http://www.amvonet.com
 SYSTEM REQUIREMENTS
 
 For server:
-- Moodle 1.9.*
+- Moodle 2.0.* or 2.1.*
 - Allowed outgoing network connections in Firewall to ports: 1935, 8080 and 80
 - PHP 5
 
@@ -40,7 +40,7 @@ For client:
 ========================================
 INSTALLATION GUIDE
 
-Detailed installation guide is available here: http://support.amvonet.com/index.php?_m=knowledgebase&_a=viewarticle&kbarticleid=109&nav=0,1
+Detailed installation guide is available here: http://support.amvonet.com/index.php?_m=knowledgebase&_a=viewarticle&kbarticleid=135&nav=0,1
 
 ========================================
 USING AMVONET ROOM ACTIVITY
@@ -58,7 +58,7 @@ For more information please see the following User guides and notes
 ========================================
 USER GUIDES
 
-Video tutorials are available here: http://amvonet.com/AMVONET-LMS-Tools-training.aspx
+Video tutorials are available here: http://amvonet.com/AMVONET/Top_videos/Top_videos.html
 The text manual is available here: http://support.amvonet.com/index.php?_m=downloads&_a=view
 The knowledge base is available here: http://support.amvonet.com/index.php?_m=knowledgebase&_a=view
 

@@ -1,5 +1,7 @@
 <?php
 
+require_once("$CFG->dirroot/mod/amvonetroom/class.Exception.php");
+
 define ("AMVONETROOM_PROTOCOL_VERSION", "2.1");
 
 class amvonetroom_Version {
@@ -127,11 +129,9 @@ class amvonetroom_ProtoVersion {
         $v20 = new amvonetroom_Version(2,0);
         if (!$currentVersion->compatible($requestVersion) || $requestVersion->compare($v20) <= 0) {
             if ($currentVersion->compare($requestVersion) < 0) {
-                header ("HTTP/1.1 460 Version Incompatible");
-                die("460 Version Incompatible");
+                amvonetroom_die(460, 'Version Incompatible');
             } else {
-                header ("HTTP/1.1 461 Version Too Old");
-                die("461 Version Too Old");
+                amvonetroom_die(461, 'Version Too Old');
             }
         }
     }

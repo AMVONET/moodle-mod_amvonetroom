@@ -1,8 +1,7 @@
 <?php
 /**
  * Library of functions and constants for module amvonetroom
- *
- **/
+ */
 
 require_once("$CFG->dirroot/mod/amvonetroom/class.SchoolPassport.php");
 require_once("$CFG->dirroot/mod/amvonetroom/class.Session.php");
@@ -11,10 +10,7 @@ require_once("$CFG->dirroot/mod/amvonetroom/class.Activity.php");
 function amvonetroom_add_instance($room) {
     global $USER;
 
-    if (!$id = amvonetroom_Activity::create($room, $USER)) {
-        error (amvonetroom_Activity::getError());
-		return FALSE;
-    }
+    $id = amvonetroom_Activity::create($room, $USER);
 
     return $id;
 }
@@ -23,11 +19,7 @@ function amvonetroom_update_instance($room) {
     global $USER;
 
 	$room->id = $room->instance;
-
-    if (!amvonetroom_Activity::update($room, $USER)) {
-        error (amvonetroom_Activity::getError());
-		return FALSE;
-    }
+    amvonetroom_Activity::update($room, $USER);
 
     return TRUE;
 }
@@ -35,12 +27,16 @@ function amvonetroom_update_instance($room) {
 function amvonetroom_delete_instance($id) {
     global $USER;
 
-    if (!amvonetroom_Activity::delete($id, $USER)) {
-        echo amvonetroom_Activity::getError();
-		return FALSE;
-    }
+    amvonetroom_Activity::delete($id, $USER);
 
     return TRUE;
+}
+
+function amvonetroom_supports($feature) {
+    switch($feature) {
+        case FEATURE_BACKUP_MOODLE2: return true;
+        default: return NULL;
+    }
 }
 
 /**

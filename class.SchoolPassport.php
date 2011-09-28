@@ -1,9 +1,11 @@
 <?php
 
+require_once("$CFG->dirroot/mod/amvonetroom/class.Exception.php");
 require_once("$CFG->dirroot/mod/amvonetroom/class.HttpRequest.php");
 require_once("$CFG->dirroot/mod/amvonetroom/class.Version.php");
 
-define ("AMVONETROOM_PASSPORT_URL", "http://master.amvonet.com/amvonet/passport");
+define ("AMVONETROOM_PASSPORT_URL_0", "http://master.amvonet.com/amvonet/passport");
+define ("AMVONETROOM_PASSPORT_URL_1", "http://master2.amvonet.com/amvonet/passport");
 define ("AMVONETROOM_UPGRADE_URL", "http://master.amvonet.com/amvonet/upgrade");
 define ("AMVONETROOM_PLUGIN_URL", "http://master.amvonet.com/amvonet/plugin");
 
@@ -16,7 +18,6 @@ define ("AMVONETROOM_TYPE_COM", "com");
 
 class amvonetroom_SchoolPassport {
     private static $instance = FALSE;
-    private static $error = NULL;
 
     private $domain;
     private $expire;
@@ -75,27 +76,39 @@ class amvonetroom_SchoolPassport {
     }
 
     public static function getKey() {
-        $k = get_record ('config_plugins', 'plugin', 'amvonetroom', 'name', 'school_key');
+        global $DB;
+
+        $k = $DB->get_record ('config_plugins', array('plugin' => 'amvonetroom',
+                                                      'name'   => 'school_key'));
         return $k ? $k->value : '';
     }
 
     public static function setKey($key) {
-        $k = get_record ('config_plugins', 'plugin', 'amvonetroom', 'name', 'school_key');
+        global $DB;
+
+        $k = $DB->get_record ('config_plugins', array('plugin' => 'amvonetroom',
+                                                      'name'   => 'school_key'));
         if (!$k) {
             $k = new stdClass();
             $k->id = 0;
             $k->plugin = 'amvonetroom';
             $k->name = 'school_key';
             $k->value = $key;
-            insert_record('config_plugins', $k);
+            $DB->insert_record('config_plugins', $k);
         } else {
             $k->value = $key;
-            update_record('config_plugins', $k);
+            $DB->update_record('config_plugins', $k);
         }
     }
 
+    /**
+     * @static
+     * Get a cached passport or request it from a server.
+     *
+     * @return amvonetroom_SchoolPassport
+     * @throws dml_exception, amvonetroom_Exception
+     */
     public static function get() {
-        self::clearError();
 
         // first, try to load from db-cache
         if (!self::$instance) {
@@ -124,8 +137,12 @@ class amvonetroom_SchoolPassport {
 
                 if (($myProtoVersion->compare($storedProtoVersion) != 0) ||
                     ($myPluginVersion->compare($storedPluginVersion) != 0)) {
-                    if (!self::upgrade($key, $myProtoVersion, $myPluginVersion))
+                    try {
+                        self::upgrade($key, $myProtoVersion, $myPluginVersion);
+                    } catch (Exception $e) {
                         self::$instance = FALSE;
+                        throw $e;
+                    }
                 }
             }
         }
@@ -134,7 +151,10 @@ class amvonetroom_SchoolPassport {
     }
 
     private static function loadFromDb() {
-        $psp = get_record ("config_plugins", "plugin", "amvonetroom", "name", "school_passport");
+        global $DB;
+
+        $psp = $DB->get_record("config_plugins", array("plugin" => "amvonetroom",
+                                                       "name"   => "school_passport"));
         if (!$psp)
             return FALSE;
 
@@ -142,94 +162,114 @@ class amvonetroom_SchoolPassport {
     }
 
     private static function saveToDb($passport) {
-        $psp = get_record ("config_plugins", "plugin", "amvonetroom", "name", "school_passport");
+        global $DB;
+
+        $psp = $DB->get_record("config_plugins", array("plugin" => "amvonetroom",
+                                                       "name"   => "school_passport"));
         if (!$psp) {
             $psp = new object();
             $psp->plugin = "amvonetroom";
             $psp->name = "school_passport";
             $psp->value = serialize($passport);
 
-            insert_record("config_plugins", $psp);
+            $DB->insert_record("config_plugins", $psp);
         } else {
             $psp->value = serialize($passport);
 
-            update_record("config_plugins", $psp);
+            $DB->update_record("config_plugins", $psp);
         }
     }
 
     private static function loadFromXml($key) {
-        if (empty($key)) {
-            self::$error = get_string("error_key_not_defined", "amvonetroom");
-            return FALSE;
+        if (empty($key))
+            amvonetroom_errorcode("error_key_not_defined");
+
+        $result = self::requestPassport($key);
+
+        $instance = new amvonetroom_SchoolPassport($result);
+        $instance->key = $key;
+        if ($instance->expire) {
+            // convert expiration time from relative to absolute
+            $instance->expire = time() + $instance->expire;
+            // put in db-cache
+            self::saveToDb($instance);
         }
-
-        $url = AMVONETROOM_PASSPORT_URL . '?key=' . urlencode($key) . '&protoVersion=' . amvonetroom_ProtoVersion::getCurrent();
-        $req = new amvonetroom_HttpRequest("GET", $url);
-
-        if ($req->send(NULL)) {
-            $instance = new amvonetroom_SchoolPassport($req->getResponse());
-            $instance->key = $key;
-            if ($instance->expire) {
-                // convert expiration time from relative to absolute
-                $instance->expire = time() + $instance->expire;
-                // put in db-cache
-                self::saveToDb($instance);
-            }
-        } else {
-            $instance = FALSE;
-            self::parseError($req);
-        }
-
-        $req->close();
-
+        
         return $instance;
     }
 
-    private static function upgrade($key, $protoVersion, $pluginVersion) {
-        $url = AMVONETROOM_UPGRADE_URL . '?key=' . urlencode($key) . '&protoVersion=' . $protoVersion . '&pluginVersion=' . $pluginVersion->toLongString();
-        $req = new amvonetroom_HttpRequest("GET", $url);
-        $req->send(NULL);
-        $ret = self::parseError($req);
-        $req->close();
+    private static function requestPassport($key) {
+        $query = '?key=' . urlencode($key) . '&protoVersion=' . amvonetroom_ProtoVersion::getCurrent();
+        $url = AMVONETROOM_PASSPORT_URL_0 . $query;
 
-        return $ret;
-    }
+        for ($index = 1; ; $index++) {
+            $req = new amvonetroom_HttpRequest("GET", $url);
 
-    private static function parseError($req) {
-        switch ($req->getStatusCode()) {
-        case 200:
-            self::clearError();
-            return TRUE;
-        case 400:
-            self::$error = get_string("error_school_bad_request", "amvonetroom");
-            return FALSE;
-        case 403:
-            self::$error = get_string("error_school_forbidden", "amvonetroom");
-            return FALSE;
-        case 404:
-            self::$error = get_string("error_school_not_registered", "amvonetroom");
-            return FALSE;
-        case 460:
-            self::$error = get_string("error_version_incompatible", "amvonetroom");
-            return FALSE;
-        case 461:
-            self::$error = get_string("error_version_too_old", "amvonetroom");
-            return FALSE;
-        case 503:
-            self::$error = get_string("error_unavailable", "amvonetroom");
-            return FALSE;
-        default:
-            self::$error = $req->getError();
-            return FALSE;
+            try {
+                $req->send();
+                $resp = $req->getResponse();
+                $req->close();
+                return $resp;
+            }
+            catch (amvonetroom_Exception $e) {
+            }
+
+            $error = self::getError($req);
+            $errno = $req->getErrno();
+            $status = $req->getStatusCode();
+            $req->close();
+
+            // break on illegal errno or status
+            if (!(
+                    // see errno values on http://php.net/manual/en/function.curl-errno.php
+                    $errno == 6  /*CURLE_COULDNT_RESOLVE_HOST*/ ||
+                    $errno == 7  /*CURLE_COULDNT_CONNECT*/ ||
+                    $errno == 28 /*CURLE_OPERATION_TIMEDOUT*/ ||
+                            
+                    $status == 408 /*Request Timeout*/ ||
+                    $status >= 500))
+                amvonetroom_error($error);
+
+            // break if there is no reserve passport url
+            if (!defined("AMVONETROOM_PASSPORT_URL_" . $index))
+                amvonetroom_error($error);
+
+            $url = constant("AMVONETROOM_PASSPORT_URL_" . $index) . $query;
         }
     }
 
-    public static function getError () {
-        return self::$error;
+    private static function upgrade($key, $protoVersion, $pluginVersion) {
+        $url = AMVONETROOM_UPGRADE_URL .
+                '?key=' . urlencode($key) .
+                '&protoVersion=' . $protoVersion .
+                '&pluginVersion=' . $pluginVersion->toLongString();
+
+        $req = new amvonetroom_HttpRequest("GET", $url);
+        try {
+            $req->send();
+        } catch (amvonetroom_Exception $e) {
+            amvonetroom_error(self::getError($req));
+        }
+        $req->close();
     }
 
-    public function clearError() {
-        self::$error = NULL;
+    private static function getError($req) {
+        switch ($req->getStatusCode()) {
+        case 400:
+            return get_string("error_school_bad_request", "amvonetroom");
+        case 403:
+            return get_string("error_school_forbidden", "amvonetroom");
+        case 404:
+            return get_string("error_school_not_registered", "amvonetroom");
+        case 460:
+            return get_string("error_version_incompatible", "amvonetroom");
+        case 461:
+            return get_string("error_version_too_old", "amvonetroom");
+        case 503:
+            return get_string("error_unavailable", "amvonetroom");
+        default:
+            return $req->getError();
+        }
     }
 }
 

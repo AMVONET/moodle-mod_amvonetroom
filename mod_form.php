@@ -6,9 +6,11 @@ class mod_amvonetroom_mod_form extends moodleform_mod {
 
     function definition() 
     {
-        global $CHOICE_SHOWRESULTS, $CHOICE_PUBLISH, $CHOICE_DISPLAY, $COURSE, $CFG, $USER;
+        global $COURSE, $USER;
 
-        $mform    =& $this->_form;
+        $mform =& $this->_form;
+
+//-------------------------------------------------------------------------------
 
         $mform->addElement('header', 'general', get_string('general', 'form'));
         $mform->addElement('hidden', 'uid');
@@ -20,9 +22,6 @@ class mod_amvonetroom_mod_form extends moodleform_mod {
         $mform->addElement('htmleditor', 'introduction_text', get_string('introduction_text', 'amvonetroom'));
         $mform->setType('introduction_text', PARAM_RAW);
         //$mform->addRule('introduction_text', null, 'required', null, 'client');
-        $mform->setHelpButton('introduction_text', array('writing', 'questions', 'richtext'), false, 'editorhelpbutton');
-
-        $current_time = time();
 
         $moderators = amvonetroom_User::getModerators($COURSE->id);
         
@@ -30,10 +29,10 @@ class mod_amvonetroom_mod_form extends moodleform_mod {
 
         $user_is_teacher = FALSE;
         foreach ($moderators as $key=>$moderator) {
-          $options[$moderator->id]  = $moderator->firstname . " " . $moderator->lastname;
-          if ($moderator->id == $USER->id) {
-             $user_is_teacher = TRUE;
-          }
+            $options[$moderator->id] = $moderator->firstname . " " . $moderator->lastname;
+            if ($moderator->id == $USER->id) {
+                $user_is_teacher = TRUE;
+            }
         }
 
         //Add USER to teachers list if not exist
@@ -54,7 +53,8 @@ class mod_amvonetroom_mod_form extends moodleform_mod {
         $features->groupmembersonly = FALSE;
         $this->standard_coursemodule_elements($features);
 
-//-------------------------------------------------------------------------------        
+//-------------------------------------------------------------------------------
+        
         $this->add_action_buttons();
     }
 

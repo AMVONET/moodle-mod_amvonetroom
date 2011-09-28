@@ -3,8 +3,6 @@
 require_once("$CFG->dirroot/mod/amvonetroom/class.Version.php");
 
 class amvonetroom_Server {
-    private static $error = NULL;
-
     /**
      * Combines servlet URL in form <serverUrl>/balancer_proxy/<servlet>
      *
@@ -44,33 +42,25 @@ class amvonetroom_Server {
      * @param  $serverUrl balancer's entry point
      * @param  $uid session id
      * @return worker URL
+     * @throws amvonetroom_Exception
      */
     public static function getWorkerUrl ($serverUrl, $uid) {
-        self::clearError();
 
         if (substr($serverUrl, -1) != "/") {
             $serverUrl .= "/";
         }
         $serverUrl .= "get_worker?sessionId=$uid";
 
-        $url = FALSE;
         $req = new amvonetroom_HttpRequest("GET", $serverUrl);
-        if (!$req->send(NULL)) {
-            self::$error = $req->getError();
-        } else {
+        try {
+            $req->send();
             $url = $req->getResponse();
+        } catch (amvonetroom_Exception $e) {
+            throw $e;
         }
         $req->close();
 
         return $url;
-    }
-
-    public static function getError() {
-        return self::$error;
-    }
-
-    public static function clearError() {
-        self::$error = NULL;
     }
 }
 

@@ -1,4 +1,8 @@
 <?php
+
+define ("AMVONETROOM_REQUEST_CONNECTION_TIMEOUT", 30); // in seconds
+define ("AMVONETROOM_REQUEST_SOCKET_TIMEOUT",     60); // in seconds 
+
 /**
  * Represents HTTP request functionality on the basis of cURL lib.
  * Used to prevent additional dependencies on php_http extension,
@@ -12,13 +16,14 @@ class amvonetroom_HttpRequest {
 
     public function __construct($method, $url) {
         $this->curlHandle = curl_init();
-        $options = array
-        (
-            CURLOPT_URL		        =>	$url,
-            CURLOPT_CUSTOMREQUEST   =>  $method,
-            CURLOPT_HEADER			=>	false,
-            CURLOPT_RETURNTRANSFER	=>	true,
-            CURLOPT_FOLLOWLOCATION	=>	true,
+        $options = array (
+            CURLOPT_URL            => $url,
+            CURLOPT_CUSTOMREQUEST  => $method,
+            CURLOPT_HEADER         => false,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_CONNECTTIMEOUT => AMVONETROOM_REQUEST_CONNECTION_TIMEOUT,
+            CURLOPT_TIMEOUT        => AMVONETROOM_REQUEST_SOCKET_TIMEOUT,
         );
         curl_setopt_array($this->curlHandle, $options);            
     }
@@ -35,7 +40,7 @@ class amvonetroom_HttpRequest {
         $this->setHeader("Content-length", $length);
     }
 
-    public function send($data) {
+    public function send($data = NULL) {
         $infile = null;
         if ($data !== null) {
             $infile = tmpfile();
@@ -57,7 +62,9 @@ class amvonetroom_HttpRequest {
 
         $errno = $this->getErrno();
         $status = $this->getStatusCode();
-        return $errno == 0 && $status >= 200 && $status < 300;
+        if ($errno != 0 || $status < 200 || $status >= 300) {
+            amvonetroom_error($this->getError());
+        }
     }
 
     public function getResponse() {
@@ -86,6 +93,8 @@ class amvonetroom_HttpRequest {
         if ($status < 200 || $status >= 300) {
             return "HTTP request failed. status=$status";
         }
+
+        return '';
     }
 }
 ?>

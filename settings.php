@@ -1,4 +1,5 @@
 <?php
+
 require_once ("class.SchoolPassport.php");
 
 // try auto-register if key passed externally
@@ -22,12 +23,9 @@ if (empty($key)) {
     $link = "<a href='$link_url'>" . get_string("link_register", "amvonetroom") . "</a>";
     $status = get_string("status_no_key", "amvonetroom");
 } else {
-    $passport = amvonetroom_SchoolPassport::get();
-    if (!$passport) {
-        $html_status_color = "#990000";
-        $link = "<a href='$link_url'>" . get_string("link_account", "amvonetroom") . "</a>";
-        $status = amvonetroom_SchoolPassport::getError();
-    } else {
+    try {
+        $passport = amvonetroom_SchoolPassport::get();
+
         $domain = $passport->getDomain();
         $version = $passport->getVersion();
         $type = $passport->getType();
@@ -41,25 +39,16 @@ if (empty($key)) {
             } elseif ($passport->getStatus() == AMVONETROOM_STATUS_BLOCKED) {
                 $status .= get_string("status_blocked_since", "amvonetroom") . $passport->getExpirationDate();
                 $html_status_color = "#990000";
-            }    
+            }
         }
+    } catch (Exception $e) {
+        $html_status_color = "#990000";
+        $link = "<a href='$link_url'>" . get_string("link_account", "amvonetroom") . "</a>";
+        $status = $e->getMessage();
     }
 }
 
 $warn = "";
-
-// check crossdomain.xml (not necessary now)
-/*$crossdomain = "";
-
-$req = new amvonetroom_HttpRequest("GET", $CFG->wwwroot . '/mod/amvonetroom/crossdomain.xml');
-if ($req->send(NULL))
-    $crossdomain = $req->getResponse();
-
-if (strstr($crossdomain, 'allow-access-from domain="*.amvonet.com"') === false) {
-    $warn = get_string("warn_no_crossdomain", "amvonetroom");
-}*/
-// ********************
-
 $html = "<div><table cellspacing=0 cellpadding=2 border=0>";
 
 if ($warn) {
@@ -83,6 +72,7 @@ $html .= "</table></div>";
 
 $hint = "<table><tr><td></td><td>| $link | <a href='http://support.amvonet.com'>" . get_string("link_support", "amvonetroom") . "</a> |</td></tr></table>";
 
+
 $settings->add(new admin_setting_heading ("amvonet_header", "", $html));
 
 $settings->add(new admin_setting_configtext('amvonetroom/school_key',
@@ -90,4 +80,5 @@ $settings->add(new admin_setting_configtext('amvonetroom/school_key',
     $hint,
     '')
 );
+
 ?>

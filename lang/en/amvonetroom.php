@@ -2,6 +2,8 @@
 
 $string['modulenameplural'] = 'AMVONET Room';
 $string['modulename'] = 'AMVONET Room';
+$string['pluginname'] = 'AMVONET Room';
+$string['pluginadministration'] = 'AMVONET Room Administration';
 
 $string['formatdate'] = 'Y-m-d h:i';
 
@@ -40,6 +42,7 @@ $string['link_account'] = 'My Account';
 $string['link_support'] = 'Support';
 
 // errors
+$string['error'] = '{$a}';
 $string['error_school_bad_request'] = 'master.amvonet.com reported bad request. Please, call to AMVONET technical support.';
 $string['error_school_forbidden'] = 'master.amvonet.com declined request. Please, call to AMVONET technical support.';
 $string['error_school_not_registered'] = 'The school isn\'t registered on master.amvonet.com';

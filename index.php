@@ -6,6 +6,9 @@
  * @version $Id: index.php,v 1.5 2006/08/28 16:41:20 mark-nielsen Exp $
  **/
 
+//TODO: Refactor all.
+//TODO: This page is deprecated. Remove it.
+
 /// Replace vcrsession with the name of your module
 
     require_once("../../config.php");
@@ -13,8 +16,8 @@
 	$id = required_param('id', PARAM_INT);   // course
  
 
-    if (! $course = get_record("course", "id", $id)) 
-        error("Course ID is incorrect");
+    if (! $course = $DB->get_record("course", array ("id" => $id)))
+        print_error("Course ID is incorrect");
    
 
     require_course_login($course);
@@ -76,7 +79,7 @@
             $currentsection = $cm->sectionnum;
         }
 
-        $cm = get_record("course_modules", "instance", $room->id);
+        $cm = $DB->get_record("course_modules", array ("instance" => $room->id));
         
         if ($course->format == "weeks" or $course->format == "topics") {
             $table->data[] = array ($printsection, $link);

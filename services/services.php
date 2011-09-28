@@ -10,6 +10,7 @@
  *
  */
 require_once("../../../config.php");
+require_once("../class.Exception.php");
 require_once("../class.Version.php");
 require_once("../class.User.php");
 require_once("../class.XmlResponse.php");
@@ -53,20 +54,16 @@ if (!empty($metaService)) {
     // 'service' parameter passed via POST has different meaning than passed via GET,
     // so we we need direct access to $_POST
     $metaService = @$_POST['service'];
-    if (empty($metaService)) {
-        header("HTTP/1.1 400 Service not specified");
-        die();
-    }
+    if (empty($metaService))
+        amvonetroom_die(400, "Service not specified");
 
     $xml = null;
     try {
-        $xml = new SimpleXMLElement(stripslashes($metaService));
+        $xml = new SimpleXMLElement($metaService);
     } catch (Exception $e) {
     }
-    if (!$xml) {
-        header("HTTP/1.1 400 Input is invalid");
-        die();
-    }
+    if (!$xml)
+        amvonetroom_die(400, "Input is invalid");
 
     $serviceName =  clean_param((string)$xml->name, PARAM_SAFEDIR); // a-zA-Z0-9_-
     $token = clean_param((string)$xml->token, PARAM_ALPHANUM);
@@ -80,42 +77,45 @@ if (!empty($metaService)) {
     if ($xmlArg) {
         foreach ($xmlArg as $arg) {
             if (count($arg) == 0) {
-                // restore slashes after XML decoding because
-                // moodle API expects all input parameters to be slashed
-                $args[] = addslashes((string)$arg);
+                $args[] = (string)$arg;
             } else
                 $args[] = $arg;
         }
     }
 }
 
-if (empty($serviceName)) {
-    header("HTTP/1.1 400 Service name not specified");
-    die();
-}
+if (empty($serviceName))
+    amvonetroom_die(400, "Service name not specified");
 
 //Authentication
-if (empty($token) || empty($sessionId)) {
-    header("HTTP/1.1 401 Unauthorized");
-    die();
+if (empty($token) || empty($sessionId))
+    amvonetroom_die(401);
+
+try {
+    $ACCESS = amvonetroom_User::getAccessByToken($token, $sessionId);
+    // authenticate user by token, it's need to browse files.
+    $USER = $ACCESS->user;
+} catch (amvonetroom_Exception $e) {
+    amvonetroom_die(403);
 }
 
-if (!($ACCESS = amvonetroom_User::getAccessByToken($token, $sessionId))) {
-    header("HTTP/1.1 403 Forbidden");
-    die();
-}
+// set locale
+$SESSION->lang = !empty($ACCESS->lang) ? $ACCESS->lang : $USER->lang;
+moodle_setlocale();
 
 //Version validation
 if (empty($protoVersion))
     $protoVersion="2.0";
 amvonetroom_ProtoVersion::checkRequest($protoVersion);
 
-if (!function_exists('amvonetservice_' . $serviceName)) {
-    header("HTTP/1.1 404 Service not found");
-    die();
-}
+if (!function_exists('amvonetservice_' . $serviceName))
+    amvonetroom_die(404, "Service not found");
 
-$response = call_user_func_array('amvonetservice_' . $serviceName, $args);
+try {
+    $response = call_user_func_array('amvonetservice_' . $serviceName, $args);
+} catch (Exception $e) {
+    $response = amvonetroom_XmlResponse::error('Unexpected error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+}
 
 //Return XML to response and die process
 $response->send();
@@ -123,7 +123,6 @@ die();
 
 /**
  * Services (should be stats with 'amvonetservice_')
- *
  */
 
 /**
@@ -145,16 +144,15 @@ die();
 
 function amvonetservice_get_quizes(/*$course_id*/) {
 
-    global $CFG, $ACCESS;
-
-    $quizes = get_records("quiz", "course", $ACCESS->room->course);
+    global $CFG, $DB, $ACCESS;
 
     $resp_items = amvonetroom_XmlResponse::items();
 
+    $quizes = $DB->get_records("quiz", array("course" => $ACCESS->room->course));
     if ($quizes) {
         foreach ($quizes as $key => $quiz) {
             $cm = get_coursemodule_from_instance('quiz', $quiz->id);
-            $question_count = count_records("quiz_question_instances", "quiz", $quiz->id);
+            $question_count = $DB->count_records("quiz_question_instances", array("quiz" => $quiz->id));
 
             $resp_item = $resp_items->element("item");
             $resp_item->text("id", $quiz->id);
@@ -188,17 +186,16 @@ function amvonetservice_get_grades(/*$course_id*/) {
 
     require_once("$CFG->libdir/gradelib.php");
 
-    $grade_items = grade_item::fetch_all(array('courseid' => $ACCESS->room->course));
-
     $resp_items = amvonetroom_XmlResponse::items();
 
+    $grade_items = grade_item::fetch_all(array('courseid' => $ACCESS->room->course));
     if ($grade_items) {
         foreach ($grade_items as $key => $item) {
             if ($item->itemnumber != null) {
 
                 $resp_item = $resp_items->element("item");
                 $resp_item->text("id", $item->id);
-                $resp_item->cdata("name", stripslashes($item->itemname));
+                $resp_item->cdata("name", $item->itemname);
                 $resp_item->text("number", $item->itemnumber);
             }
         }
@@ -224,10 +221,7 @@ function amvonetservice_get_grades(/*$course_id*/) {
 function amvonetservice_add_grade($course_id, $room_id, $grade_number, $grade_name) {
     global $CFG, $ACCESS;
 
-    if (!amvonetroom_User::ensureMuPrivileges($ACCESS)) {
-        header("HTTP/1.1 403 Forbidden");
-        die;
-    }
+    amvonetroom_User::checkMuPrivileges($ACCESS);
 
     require_once("$CFG->libdir/gradelib.php");
 
@@ -239,7 +233,6 @@ function amvonetservice_add_grade($course_id, $room_id, $grade_number, $grade_na
     else {
         return amvonetroom_XmlResponse::error("Can't add grade");
     }
-
 }
 
 /**
@@ -256,24 +249,21 @@ function amvonetservice_add_grade($course_id, $room_id, $grade_number, $grade_na
 function amvonetservice_delete_grade($grade_id) {
     global $CFG, $ACCESS;
 
-    if (!amvonetroom_User::ensureMuPrivileges($ACCESS)) {
-        header("HTTP/1.1 403 Forbidden");
-        die;
-    }
+    amvonetroom_User::checkMuPrivileges($ACCESS);
 
     require_once("$CFG->libdir/gradelib.php");
 
     $grade_item = grade_item::fetch(array('id' => clean_param($grade_id, PARAM_INT)));
-
-    if (!$grade_item) {
+    if (!$grade_item)
         return amvonetroom_XmlResponse::error("Grade $grade_id not found");
-    }
 
-    if ($grade_item->delete()) {
-        return amvonetroom_XmlResponse::ok("The grade has been deleted");
-    } else {
+    try {
+        $grade_item->delete();
+    } catch(dml_exception $e) {
         return amvonetroom_XmlResponse::error("Can't delete grade");
     }
+
+    return amvonetroom_XmlResponse::ok("The grade has been deleted");
 }
 
 /**
@@ -289,40 +279,37 @@ function amvonetservice_delete_grade($grade_id) {
 function amvonetservice_save_grade_users($grade_id, $user_grades, $grade_name) {
     global $CFG, $ACCESS;
 
-    if (!amvonetroom_User::ensureMuPrivileges($ACCESS)) {
-        header("HTTP/1.1 403 Forbidden");
-        die;
-    }
+    amvonetroom_User::checkMuPrivileges($ACCESS);
 
     require_once("$CFG->libdir/gradelib.php");
 
     $grade_item = grade_item::fetch(array('id' => clean_param($grade_id, PARAM_INT)));
-
-    if (!$grade_item) {
+    if (!$grade_item)
         return amvonetroom_XmlResponse::error("Grade $grade_id not found");
+
+    try {
+        $grade_item->itemname = $grade_name;
+        $grade_item->update();
+    } catch(dml_exception $e) {
+        return amvonetroom_XmlResponse::error("Can't update grade");
     }
 
-    $grade_item->itemname = $grade_name;
-    $grade_item->update();
+    foreach ($user_grades->item as $grade)
+    {
+        $user_id = clean_param((string)$grade->user_id, PARAM_INT);
+        // cleaning not necessary due to explicit type cast to float (see below)
+        $user_grade = (string)$grade->user_grade;
+        // $user_grade_comment doesn't require cleanup, tested with special characters which may affect sql
+        $user_grade_comment = (string)$grade->user_grade_comment;
 
-    if ($grade_item) {
-        foreach ($user_grades->item as $grade)
-        {
-            $user_id = clean_param((string)$grade->user_id, PARAM_INT);
-            // cleaning not necessary due to explicit type cast to float (see below)
-            $user_grade = (string)$grade->user_grade;
-            // $user_grade_comment doesn't require cleanup, tested with special characters which may affect sql
-            $user_grade_comment = (string)$grade->user_grade_comment;
-
-
-            $grade_item->update_final_grade(
-                $user_id,
-                !empty($user_grade) ? (float) $user_grade  : null,
-                null,
-                $user_grade_comment
-            );
-        }
+        $grade_item->update_final_grade(
+            $user_id,
+            !empty($user_grade) ? (float) $user_grade  : null,
+            null,
+            $user_grade_comment
+        );
     }
+
     return amvonetroom_XmlResponse::ok("The user's grades has been saved");
 }
 
@@ -358,27 +345,23 @@ function amvonetservice_get_grade_users($room_id, $grade_id) {
 
     //$cm = get_coursemodule_from_instance('amvonetroom', $ACCESS->room->id, $ACCESS->room->course);
     //$users = amvonetroom_User::getGradees($cm->course);
-    
-    $users = amvonetroom_User::getGradees($ACCESS->room->course);
 
     $grade_item = grade_item::fetch(array('id' => clean_param($grade_id, PARAM_INT)));
-
-    if (!$grade_item) {
+    if (!$grade_item)
         return amvonetroom_XmlResponse::error("Grade $grade_id not found");
-    }
 
     $resp_items = amvonetroom_XmlResponse::items();
 
+    $users = amvonetroom_User::getGradees($ACCESS->room->course);
     if ($users) {
         $user_ids = array();
         foreach ($users as $user_id => $user) {
             $user_ids[] = $user_id;
         }
-        $grade_grades = grade_grade::fetch_users_grades($grade_item, $user_ids);
 
+        $grade_grades = grade_grade::fetch_users_grades($grade_item, $user_ids);
         if ($grade_grades) {
-            foreach ($grade_grades as $grade)
-            {
+            foreach ($grade_grades as $grade) {
                 $user_id = $grade->userid;
                 $user = $users[$user_id];
 
@@ -388,18 +371,20 @@ function amvonetservice_get_grade_users($room_id, $grade_id) {
                 $resp_item->text("user_name", $user->firstname . ' ' . $user->lastname);
                 $resp_item->text("user_grade_id", $grade->id);
                 $resp_item->text("user_grade", $grade->finalgrade);
-                $resp_item->cdata("user_grade_comment", stripslashes($grade->feedback));
+                $resp_item->cdata("user_grade_comment", $grade->feedback);
             }
         }
     }
-    
+
     return $resp_items;
 }
 
 /**
  * Get files and folders list.
  *
- * @param  $path
+ * @param  $path is the path in format compatible with the Moodle 2.0 file browser:
+ *               '/contextid/component/filearea/itemid/some/other/path/filename'.
+ *               Some parts can be missed, '/' is valid path, the filename '.' means a directory.
  * @return XML
  * for example:
  * <?xml version="1.0" encoding="UTF-8"?>
@@ -411,85 +396,109 @@ function amvonetservice_get_grade_users($room_id, $grade_id) {
  *
  */
 function amvonetservice_get_files($path, $depth = -1) {
-    global $ACCESS;
 
     $path = str_replace("\\", "/", clean_param($path, PARAM_PATH));
-    
-    $first = true;
-    foreach (explode("/", $path) as $part) {
-        if ($part == "." || $part == "..")
-            return amvonetroom_XmlResponse::error("Invalid path.");
-        if (empty($part))
-            continue;
-        if ($first) {
-            $first = false;
-            if (!is_numeric($part))
-                return amvonetroom_XmlResponse::error("Course must be integer.");
-            if (intval($part) != $ACCESS->room->course) {
-                header("HTTP/1.1 403 Forbidden");
-                die;
-            }
+
+    $params = new stdClass();
+    $params->contextid = null;
+    $params->component = null;
+    $params->filearea  = null;
+    $params->itemid    = '0';
+    $params->filepath  = '/';   // must start and end since '/'
+    $params->filename  = '.';   // means a current dir
+
+    // Extract params from the path argument.
+    // In Moodle 1.x pathes starts since a course id,
+    // so we ignore it and begin since the root of the filesystem.
+    // In Moodle 2.0 we demand that a path starts since '/'.
+    if (!empty($path) && $path[0] == '/' && strlen($path) > 1) {
+        $parts = split('/', substr($path, 1));
+        if (count($parts) > 0) {
+            if (!is_numeric($parts[0])) return amvonetroom_XmlResponse::error("Context ID must be an integer.");
+            $params->contextid = array_shift($parts);
         }
+        if (count($parts) > 0) $params->component = array_shift($parts);
+        if (count($parts) > 0) $params->filearea = array_shift($parts);
+        if (count($parts) > 0) {
+            if (!is_numeric($parts[0])) return amvonetroom_XmlResponse::error("Item ID must be an integer.");
+            $params->itemid = array_shift($parts);
+        }
+        if (count($parts) > 0) $params->filename = array_pop($parts);
+        if (count($parts) > 0) $params->filepath = '/'. join('/', $parts) . '/';
     }
-    if ($first)
-        return amvonetroom_XmlResponse::error("Course must be specified.");
 
     $items = amvonetroom_XmlResponse::items();
-    amvonetroom__list_dir($items, $path, $depth);
+
+    $browser = get_file_browser();
+    $context = is_null($params->contextid) ? get_system_context() : get_context_instance_by_id($params->contextid);
+        
+    if(!$context)      // cannot find a context by specified id
+        return $items; // TODO: may be return a bad status?
+
+    $info = $browser->get_file_info($context, $params->component, $params->filearea,
+                                    $params->itemid, $params->filepath, $params->filename);
+
+    if (!is_null($info) && $info->is_directory() && $info->is_readable())
+        amvonetroom__list_dir($items, $info, $depth);
+
     return $items;
 }
 
 /**
  * Helper method to list directory.
  *
- * @param  $parent
- * @param  $path
- * @return none
+ * @param amvonetroom_XmlResponsePart $items
+ * @param file_info $dir
+ * @param int $depth
+ * @return
  */
-function amvonetroom__list_dir($parent, $path, $depth = -1) {
-    global $CFG;
+function amvonetroom__list_dir(amvonetroom_XmlResponsePart $items, file_info $dir, $depth = -1) {
 
     if ($depth == 0)
         return;
 
-    $fullpath = $CFG->dataroot . '/' . $path;
-    $directory = @opendir($fullpath);
-    if ($directory === FALSE) // no such dir
-        return;
-
-    while (FALSE !== ($file = readdir($directory))) {
-        if ($file == "." || $file == "..") {
+    foreach ($dir->get_children() as $child) {
+        if (!$child->is_readable())
             continue;
-        }
 
-        $fullname = $path . '/' . $file;
-        if (is_dir($fullpath . '/' . $file)) {
-            $node = $parent->element("dir", array(
-                'id' => $fullname,
-                'name' => $file
+        if (!$child->is_directory()) {
+            $items->element("file", array(
+                'id'   => amvonetroom__create_filesystem_path((object)$child->get_params()),
+                'name' => $child->get_visible_name(),
+                'size' => $child->get_filesize(),
+                'time' => date("Y-m-d H:i:s", $child->get_timemodified()),
+                'url'  => $child->get_url()
             ));
-            amvonetroom__list_dir($node, $fullname, $depth > 0 ? $depth-1 : -1);
-        } else {
-            $furl  = $CFG->wwwroot . '/file.php/' . $fullname;
-            $fpath = $fullpath . '/' . $file;
-	        $fsize = filesize($fpath);
-	        $ftime = date ("Y-m-d H:i:s", filemtime($fpath));
-            $parent->element("file", array(
-                'id' => $fullname,
-                'name' => $file,
-                'size' => $fsize,
-                'time' => $ftime,
-                'url' => $furl
+        } else if (!$child->is_empty_area()) {
+            $item = $items->element("dir", array(
+                'id'   => amvonetroom__create_filesystem_path((object)$child->get_params()),
+                'name' => $child->get_visible_name()
             ));
+            amvonetroom__list_dir($item, $child, $depth > 0 ? $depth-1 : -1);
         }
     }
-    closedir($directory);
+}
+
+/**
+ * Helper method to create a filesystem identifier of Moodle 2.x.
+ *
+ * @param  $params is std object with fields contextid, component, filearea, itemid, filepath, filename.
+ * @return string which has format '/contextid/component/filearea/itemid/some/other/path/filename'
+ */
+function amvonetroom__create_filesystem_path($params) {
+    if (is_null($params->contextid))
+        return '/';
+
+    if (is_null($params->component) || is_null($params->filearea) || is_null($params->itemid))
+        return "/$params->contextid";
+
+    return "/$params->contextid/$params->component/$params->filearea/$params->itemid". $params->filepath . $params->filename;
 }
 
 /**
  * Get activities list.
  *
- * @param  $course [deprecated] course associated with sessionId is used now
+ * @param $course [deprecated] course associated with sessionId is used now
  * @return XML
  * for example:
  * <?xml version="1.0" encoding="UTF-8"?>
@@ -498,16 +507,16 @@ function amvonetroom__list_dir($parent, $path, $depth = -1) {
  * </items>
  *
  */
-function amvonetservice_get_activities(/*$course*/) {
-    global $CFG, $ACCESS;
+function amvonetservice_get_activities() {
+    global $CFG, $DB, $ACCESS;
 
     $items = amvonetroom_XmlResponse::items();
 
-    foreach (get_course_mods($ACCESS->room->course)  as $mod) {
-        $instance = get_record($mod->modname, 'id', $mod->instance);
+    foreach (get_course_mods($ACCESS->room->course) as $mod) {
+        $instance = $DB->get_record($mod->modname, array ('id' => $mod->instance));
         if (!$instance)
             continue;
-        
+
         $url = $CFG->wwwroot . '/mod/' . $mod->modname . '/view.php?id=' . $mod->id;
         $items->element("activity", array(
             'type' => $mod->modname,
@@ -523,9 +532,9 @@ function amvonetservice_get_activities(/*$course*/) {
  * Upload specified package into course files and create scorm activity.
  *
  * @param string $name
- * @param string $path
- * @param boolean $collision
- * 
+ * @param string $path [deprecated since Moodle 2.0]
+ * @param boolean $collision [deprecated since Moodle 2.0]
+ *
  * @return XML
  * for example:
  * <?xml version="1.0" encoding="UTF-8"?>
@@ -535,62 +544,56 @@ function amvonetservice_get_activities(/*$course*/) {
  *
  */
 function amvonetservice_import_scorm($name, $path, $collision) {
-    global $CFG, $ACCESS;
+    global $CFG, $DB, $ACCESS;
 
-    if (!amvonetroom_User::ensureMuPrivileges($ACCESS))
-        return amvonetroom_XmlResponse::error(amvonetroom_User::getError());
-
-    require_once("$CFG->libdir/uploadlib.php");
+    amvonetroom_User::ensureMuPrivileges($ACCESS);
 
     // initially, clean params and load course instance
-    
+
     $courseId = $ACCESS->room->course;
-    $course = get_record("course", "id", $courseId);
+    $course = $DB->get_record("course", array ("id" => $courseId));
     if (!$course)
         return amvonetroom_XmlResponse::error("Course not found.");
+
+/*
+    $collision = clean_param($collision, PARAM_BOOL);
 
     $path = clean_param($path, PARAM_PATH);
     if (empty($path)) {
         $path = '/';
-    } else if ($path[0] != '/') {
-        $path = '/' . $path;
+    } else {
+        if ($path[0] != '/')
+            $path = '/' . $path;
+        if ($path[strlen($path)-1] != '/')
+            $path = $path . '/';
     }
-
-    $collision = clean_param($collision, PARAM_BOOL);
-
-    $name = clean_param($name, PARAM_TEXT);
+*/
 
     if (empty($_FILES['package']))
         return amvonetroom_XmlResponse::error("Package is missed.");
     // w/a for wrong passing non-ASCII characters
-    $_FILES['package']['name'] = urldecode($_FILES['package']['name']);
+    $filename = $_FILES['package']['name'] = urldecode($_FILES['package']['name']);
 
-    // first, upload scorm package to course's file repository
-
-    if (!$basedir = make_upload_directory($courseId))
-        return amvonetroom_XmlResponse::error("Unable to create upload dir.");
-    
-    $um = new upload_manager('package', false, $collision, $course, false, 0, true);
-    if (!$um->process_file_uploads("$basedir$path"))
-        return amvonetroom_XmlResponse::error("Unable to upload file.");
-
-    $filename = $um->get_new_filename();
+    $name = clean_param($name, PARAM_TEXT);
     if (empty($name))
         $name = $filename;
 
-    // second, create scorm activity if it doesn't exists yet
-    
-    $scorm = get_record("scorm", "reference", "$path/$filename");
+    // first, create scorm activity if it doesn't exists yet
+
+    $scorm = $DB->get_record("scorm", array("course" => $courseId, "name" => $name));
     if (!$scorm) {
         $scorm = new stdClass();
-        $scorm->instance = '';
-        $scorm->course = $courseId;
-        $scorm->name = $name;
-        $scorm->reference = "$path/$filename";
-        $scorm->width = 100; // in percents
-        $scorm->height = 800; // in pixels (?)
-        $scorm->maxgrade = 100;
-        $scorm->grademethod = 1;
+        $scorm->instance     = '';
+        $scorm->course       = $courseId;
+        $scorm->name         = $name;
+        $scorm->reference    = $filename;
+        $scorm->component    = 'mode_scorm';
+        $scorm->area         = 'package';
+        $scorm->intro        = '';
+        $scorm->width        = 100; // in percents
+        $scorm->height       = 800; // in pixels (?)
+        $scorm->maxgrade     = 100;
+        $scorm->grademethod  = 1;
         $scorm->timemodified = time();
 
         $ret = amvonetroom__create_activity('scorm', $scorm);
@@ -598,62 +601,94 @@ function amvonetservice_import_scorm($name, $path, $collision) {
             return amvonetroom_XmlResponse::error($ret['error']);
 
         $id = $ret['id'];
+
+        $scorm = $DB->get_record("scorm", array("course" => $courseId, "name" => $name));
+        if (!$scorm)
+            return amvonetroom_XmlResponse::error('Canoot get created scorm activity.');
+
     } else {
         $scorm->name = $name;
-        
-        $ret = amvonetroom__update_activity('scorm', $scorm);
-        if (!$ret['result'])
-            return amvonetroom_XmlResponse::error($ret['error']);
+        $scorm->reference = $filename;
 
-        $id = $ret['id'];
+        if (!$cm = get_coursemodule_from_instance('scorm', $scorm->id))
+            return amvonetroom_XmlResponse::error("Course $scorm->name module not found.");
+        $id = $cm->id;
     }
+
+    // second, upload scorm package to course's file repository.
+
+    $context = get_context_instance(CONTEXT_MODULE, $id);
+
+    $fs = get_file_storage();
+    $fs->delete_area_files($context->id, 'mod_scorm');
+
+    $fileinfo = array(
+        'contextid' => $context->id,
+        'component' => 'mod_scorm',
+        'filearea'  => 'package',
+        'itemid'    => 0,
+        'filepath'  => '/',
+        'filename'  => $filename);
+    $fs->create_file_from_pathname($fileinfo, $_FILES['package']['tmp_name']);
+
+    // third, update scorm activity to parse the package
+
+    $ret = amvonetroom__update_activity('scorm', $scorm);
+    if (!$ret['result'])
+        return amvonetroom_XmlResponse::error($ret['error']);
 
     rebuild_course_cache($courseId);
 
     // finally, compose response
-    
+
     $items = amvonetroom_XmlResponse::items();
     $items->element("activity", array(
         'type' => 'scorm',
         'name' => $scorm->name,
-        'url' => "$CFG->wwwroot/mod/scorm/view.php?id=$id"
+        'url'  => "$CFG->wwwroot/mod/scorm/view.php?id=$id"
     ));
 
     return $items;
 }
 
 function amvonetroom__create_activity($moduleName, $moduleData) {
-    global $CFG, $token;
+    global $CFG, $DB;
 
     $ret = array('result' => false, 'id' => '', 'error' => '');
 
+    require_once("$CFG->dirroot/course/lib.php");
+
     if (!course_allowed_module($moduleData->course, $moduleName)) {
-        $ret['error'] = 'Module not allowed.';
+        $ret['error'] = "Module $moduleName not allowed.";
         return $ret;
     }
 
-    if (!$module = get_record('modules', 'name', $moduleName)) {
-        $ret['error'] = 'Module not installed.';
+    if (!$module = $DB->get_record('modules', array ('name' => $moduleName))) {
+        $ret['error'] = "Module $moduleName not installed.";
         return $ret;
     }
 
     require_once("$CFG->dirroot/mod/$moduleName/lib.php");
 
-    $addFunc = "{$moduleName}_add_instance";
-    $id = $addFunc($moduleData);
-    if (!$id) {
-        $ret['error'] = 'Add instance failed.';
-        return $ret;
-    }
-
     $cm = new stdClass();
     $cm->course = $moduleData->course;
     $cm->module = $module->id;
-    $cm->instance = $id;
+    $cm->instance = 0;
     $cm->added = time();
 
-    if (!$cmId = add_course_module($cm) ) {
+    try {
+        $cmId = add_course_module($cm);
+    } catch (dml_exception $e) {
         $ret['error'] = 'Could not add a new course module.';
+        return $ret;
+    }
+
+    $moduleData->coursemodule = $cmId;
+    try {
+        $addFunc = "{$moduleName}_add_instance";
+        $addFunc($moduleData);
+    } catch (dml_exception $e) {
+        $ret['error'] = "Add $moduleName instance failed.";
         return $ret;
     }
 
@@ -662,12 +697,16 @@ function amvonetroom__create_activity($moduleName, $moduleData) {
     $sec->section = amvonetroom__get_section();
     $sec->coursemodule = $cmId;
 
-    if (!$secId = add_mod_to_section($sec)) {
+    try {
+        $secId = add_mod_to_section($sec);
+    } catch (dml_exception $e) {
         $ret['error'] = 'Could not add the new course module to section.';
         return $ret;
     }
 
-    if (!set_field("course_modules", "section", $secId, "id", $cmId)) {
+    try {
+        $DB->set_field("course_modules", "section", $secId, array("id" => $cmId));
+    } catch (dml_exception $e) {
         $ret['error'] = 'Could not update the course module with the correct section.';
         return $ret;
     }
@@ -683,17 +722,22 @@ function amvonetroom__update_activity($moduleName, $moduleData) {
 
     $ret = array('result' => false, 'id' => '', 'error' => '');
 
+    require_once("$CFG->dirroot/lib/datalib.php");
+
     if (!$cm = get_coursemodule_from_instance($moduleName, $moduleData->id)) {
-        $ret['error'] = 'Course module not found.';
+        $ret['error'] = "Course $moduleName module not found.";
         return $ret;
     }
 
     require_once("$CFG->dirroot/mod/$moduleName/lib.php");
 
+    $moduleData->coursemodule = $cm->id;
     $moduleData->instance = $moduleData->id;
-    $updateFunc = "{$moduleName}_update_instance";
-    if (!$updateFunc($moduleData)) {
-        $ret['error'] = 'Update instance failed.';
+    try {
+        $updateFunc = "{$moduleName}_update_instance";
+        $updateFunc($moduleData);
+    } catch (dml_exception $e) {
+        $ret['error'] = "Update $moduleName instance failed.";
         return $ret;
     }
 
@@ -704,12 +748,14 @@ function amvonetroom__update_activity($moduleName, $moduleData) {
 }
 
 function amvonetroom__get_section() {
-    global $ACCESS;
+    global $CFG, $ACCESS, $DB;
+
+    require_once("$CFG->dirroot/lib/datalib.php");
 
     if (!$cm = get_coursemodule_from_instance('amvonetroom', $ACCESS->room->id))
         return 0;
 
-    if (!$sec = get_record('course_sections', 'id', $cm->section))
+    if (!$sec = $DB->get_record('course_sections', array('id' => $cm->section)))
         return 0;
 
     return $sec->section;

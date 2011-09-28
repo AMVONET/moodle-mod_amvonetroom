@@ -1,71 +1,57 @@
 <?php
 require_once("../../config.php");
+require_once("class.Exception.php");
 require_once("class.Server.php");
 require_once("class.User.php");
 require_once("class.SchoolPassport.php");
 
 require_login();
 
-$uid = required_param('id', PARAM_SAFEDIR); // a-zA-Z0-9_-
+$uid = required_param('id', PARAM_SAFEDIR);
 $mode = optional_param('mode', 'index', PARAM_RAW);
 $record = optional_param('record', 0, PARAM_INT);
 
-$url = "";
-
 $passport = amvonetroom_SchoolPassport::get();
-if (!$passport) {
-    error(amvonetroom_SchoolPassport::getError());
-}
+
 if (AMVONETROOM_STATUS_BLOCKED == $passport->getStatus()) {
     $msg = get_string("status_blocked", "amvonetroom") .
            get_string("status_blocked_since", "amvonetroom") .
            $passport->getExpirationDate();
-    error($msg);
+    amvonetroom_error($msg);
 }
 
-$clientLocale = 'en_US';
-if(empty($SESSION->lang)) {
-    if($USER->lang == 'ru_utf8')
-        $clientLocale = 'ru_RU';
-
-    if($USER->lang == 'es_utf8')
-        $clientLocale = 'es_ES';
-} else {
-    if($SESSION->lang == 'ru_utf8')
-        $clientLocale = 'ru_RU';
-
-    if($SESSION->lang == 'es_utf8')
-        $clientLocale = 'es_ES';
+switch (current_language()) {
+    default:
+    case 'en': $clientLocale = 'en_US'; break;
+    case 'ru': $clientLocale = 'ru_RU'; break;
+    case 'es': $clientLocale = 'es_ES'; break;
 }
 
-if ($uid) {
-    $room = get_record("amvonetroom", "uid", $uid);
+$room = $DB->get_record("amvonetroom", array("uid" => $uid));
+if (!$room)
+    amvonetroom_die(404);
 
-    if (!$room) {
-        header ("HTTP/1.1 500 Session not found");
-        die("Session not found");
-    }
+$token = amvonetroom_User::registerUser($USER);
 
-    $token = amvonetroom_User::registerUser($USER);
+$url = amvonetroom_Server::balancerRedirect($passport->getEntryPoint(), "endpoint/" . $room->uid)
+        . "&token=" . $token
+        . "&locale=" . $clientLocale;
 
-    $url = amvonetroom_Server::balancerRedirect($passport->getEntryPoint(), "endpoint/{$room->uid}");
+if (!empty($mode))
+    $url .= "&mode=" . $mode;
+if (!empty($record))
+    $url .= "&recordId=" . $record;
 
-    if ($mode)
-        $url .= "&mode=" . $mode;
-
-    if ($record)
-        $url .= "&recordId=" . $record;
-
-    $url .= "&token=" . $token . "&locale=" . $clientLocale;
-}
 ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-frameset.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
 <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
     <title>AMVONET</title>
 
-    <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+    <link rel="icon" href="pix/favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="pix/favicon.ico" type="image/x-icon">
 
     <script type="text/javascript" language="JavaScript">
         // Pass focus to the frame.

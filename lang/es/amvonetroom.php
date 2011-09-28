@@ -1,7 +1,9 @@
-﻿<?php
+<?php
 
 $string['modulenameplural'] = 'Aulas virtuales en vivo';
 $string['modulename'] = 'AMVONET Room';
+$string['pluginname'] = 'AMVONET Room';
+$string['pluginadministration'] = 'AMVONET Room Administration';
 
 $string['formatdate'] = 'Y-m-d h:i';
 
